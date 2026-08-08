@@ -25,6 +25,7 @@
   <header class="statusbar">
     <span class="clock" id="clock">--:--</span>
     <span class="speed-chip" id="speedChip">– km/h</span>
+    <span class="route-chip" id="routeChip" hidden>—</span>
     <span class="chips">
       <span class="pill" id="pillGps" data-state="warn">GPS</span>
       <span class="pill" id="pillWake" data-state="warn" hidden>DISPLAY</span>
@@ -36,8 +37,51 @@
   <main class="grid">
     <!-- Bleibt fest oben rechts und ist bewusst nicht antippbar. -->
     <section class="tile limit" id="limitTile">
-      <div class="sign" id="sign" data-state="unknown"><span class="sign-num" id="limitNum">—</span></div>
-      <div class="area" id="areaTxt" data-src="none">—</div>
+      <div class="limit-row">
+        <div class="sign" id="sign" data-state="unknown"><span class="sign-num" id="limitNum">—</span></div>
+
+        <!-- Ortslage als Piktogramm nach spanischem Vorbild: Ortstafel,
+             Ortsende und Autobahn — ohne Text, damit es sofort lesbar ist. -->
+        <div class="area-sign" id="areaSign" data-area="none">
+          <svg class="as-town" viewBox="0 0 52 44" aria-label="Innerorts">
+            <g fill="#12123A">
+              <rect x="6" y="24" width="11" height="16"/>
+              <rect x="19" y="14" width="13" height="26"/>
+              <rect x="34" y="20" width="12" height="20"/>
+              <polygon points="34,20 40,12 46,20"/>
+            </g>
+            <g fill="#FFFFFF">
+              <rect x="9" y="28" width="4" height="4"/><rect x="22" y="19" width="4" height="4"/>
+              <rect x="27" y="19" width="4" height="4"/><rect x="22" y="27" width="4" height="4"/>
+              <rect x="27" y="27" width="4" height="4"/><rect x="37" y="26" width="5" height="5"/>
+            </g>
+          </svg>
+
+          <svg class="as-rural" viewBox="0 0 52 44" aria-label="Außerorts">
+            <g fill="#12123A">
+              <rect x="6" y="24" width="11" height="16"/>
+              <rect x="19" y="14" width="13" height="26"/>
+              <rect x="34" y="20" width="12" height="20"/>
+              <polygon points="34,20 40,12 46,20"/>
+            </g>
+            <g fill="#FFFFFF">
+              <rect x="9" y="28" width="4" height="4"/><rect x="22" y="19" width="4" height="4"/>
+              <rect x="27" y="19" width="4" height="4"/><rect x="22" y="27" width="4" height="4"/>
+              <rect x="27" y="27" width="4" height="4"/><rect x="37" y="26" width="5" height="5"/>
+            </g>
+            <line x1="4" y1="41" x2="48" y2="4" stroke="#D5182F" stroke-width="6" stroke-linecap="round"/>
+          </svg>
+
+          <svg class="as-motorway" viewBox="0 0 52 44" aria-label="Autobahn">
+            <g fill="#FFFFFF">
+              <polygon points="14,42 20,13 24,13 21,42"/>
+              <polygon points="38,42 32,13 28,13 31,42"/>
+              <rect x="8" y="8" width="36" height="6" rx="1"/>
+              <rect x="9" y="14" width="4" height="7"/><rect x="39" y="14" width="4" height="7"/>
+            </g>
+          </svg>
+        </div>
+      </div>
       <div class="limit-sub" id="limitSub">warte auf Position</div>
     </section>
 
@@ -46,13 +90,10 @@
   </main>
 </div>
 
-<!-- Die vier Bereiche liegen hier und werden per JS in die Plätze gehängt. -->
+<!-- Die Bereiche liegen hier und werden per JS in die Plätze gehängt. -->
 <div id="panels" hidden>
 
   <section class="panel" id="panelNav">
-    <button class="panel-head" data-open="route">
-      <span>Navigation</span><span class="head-hint">ROUTE ›</span>
-    </button>
     <div class="panel-body nav-body">
       <div class="turn" id="turnBanner" hidden>
         <span class="turn-arrow" id="turnArrow">↑</span>
@@ -63,16 +104,7 @@
       </div>
       <div class="map" id="map">
         <span class="map-attrib">© OpenStreetMap · OpenFreeMap</span>
-      </div>
-      <div class="nav-row" id="navIdle">
-        <button class="btn go" id="btnGo">ROUTE</button>
-        <button class="btn launch" data-app="apple" aria-label="Apple Karten"><span class="glyph"></span></button>
-        <button class="btn launch" data-app="google" aria-label="Google Maps"><span class="glyph">G</span></button>
-        <button class="btn launch" data-app="calimoto" aria-label="calimoto"><span class="glyph">C</span></button>
-      </div>
-      <div class="nav-row" id="navRun" hidden>
-        <span class="nav-sum" id="navSum">—</span>
-        <button class="btn stop" id="btnNavStop">STOPP</button>
+        <button class="map-btn" id="btnPlan">ZIEL</button>
       </div>
     </div>
   </section>
@@ -107,28 +139,50 @@
       <div class="pl-list" id="plList"></div>
     </div>
   </section>
-
-  <section class="panel" id="panelRoute">
-    <button class="panel-head" data-open="default">
-      <span>Route</span><span class="head-hint">‹ zurück</span>
-    </button>
-    <div class="panel-body route">
-      <div class="route-road" id="routeRoad">—</div>
-      <div class="route-sub" id="routeSub">warte auf Position</div>
-      <div class="route-grid">
-        <span class="stat"><b id="rDist">0.0</b><i>km gefahren</i></span>
-        <span class="stat"><b id="rTime">0:00</b><i>fahrzeit</i></span>
-        <span class="stat"><b id="rAvg">0</b><i>ø km/h</i></span>
-        <span class="stat"><b id="rMax">0</b><i>max km/h</i></span>
-        <span class="stat"><b id="rHead">--</b><i>kurs</i></span>
-        <span class="stat"><b id="rAcc">--</b><i>gps</i></span>
-      </div>
-      <div class="route-dest" id="routeDest"></div>
-    </div>
-  </section>
 </div>
 
-<!-- ── Setup: das Einzige, was scrollen darf. Bedienung im Stand. ── -->
+<!-- ── Zweite Seite: Routenplanung. Vollbild, weil Zieleingabe, Trefferliste
+     und Optionen im geteilten Bereich nicht ohne Scrollen unterzubringen sind. -->
+<section class="sheet plan" id="planSheet" aria-hidden="true">
+  <header class="sheet-head">
+    <button class="btn back" id="planBack">‹ Karte</button>
+    <h1 id="planTitle">Ziel</h1>
+    <button class="btn stop" id="btnNavStop" hidden>STOPP</button>
+  </header>
+
+  <div class="plan-body">
+    <div class="plan-search">
+      <input id="destInput" type="text" inputmode="search" enterkeyhint="search"
+             placeholder="Adresse oder Ort" autocomplete="off" autocorrect="off" spellcheck="false">
+      <button class="btn mini-go" id="btnSearch">Suchen</button>
+    </div>
+
+    <div class="chip-row" id="poiRow">
+      <button class="chip" data-poi="fuel">Tankstelle</button>
+      <button class="chip" data-poi="food">Essen</button>
+      <button class="chip" data-poi="hotel">Hotel</button>
+      <button class="chip" data-poi="parking">Parken</button>
+      <button class="chip" data-poi="repair">Werkstatt</button>
+    </div>
+
+    <div class="plan-list" id="planList"></div>
+
+    <div class="chip-row opts">
+      <span class="chip-label">Vermeiden</span>
+      <button class="chip" data-avoid="highway">Autobahn</button>
+      <button class="chip" data-avoid="toll">Maut</button>
+      <button class="chip" data-avoid="ferry">Fähre</button>
+      <button class="chip" data-avoid="unpaved">Unbefestigt</button>
+    </div>
+
+    <div class="plan-actions">
+      <button class="btn calc" id="btnCalc">ROUTE BERECHNEN</button>
+      <button class="btn go" id="btnStart" hidden>ROUTE STARTEN</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── Setup ── -->
 <section class="sheet" id="sheet" aria-hidden="true">
   <header class="sheet-head">
     <h1>Setup</h1>
@@ -136,22 +190,8 @@
   </header>
   <div class="sheet-body">
 
-    <h2>Ziel</h2>
-    <div class="group">
-      <label class="row col"><span>Ziel für die Navi-Apps</span>
-        <input type="text" id="destInput" placeholder="Adresse oder Ort" autocomplete="off" autocorrect="off" spellcheck="false">
-      </label>
-    </div>
-
     <h2>Navigation</h2>
     <div class="group">
-      <label class="row"><span>Routenart</span>
-        <select id="setRouteStyle">
-          <option value="fast">Schnell</option>
-          <option value="country">Landstraße bevorzugen</option>
-          <option value="avoidHighway">Autobahn meiden</option>
-        </select>
-      </label>
       <label class="row"><span>Abbiegeansagen</span><input type="checkbox" class="sw" id="setNavVoice"></label>
       <label class="row"><span>Karte in Fahrtrichtung</span><input type="checkbox" class="sw" id="setCourseUp"></label>
       <label class="row"><span>Kartenstil</span>
@@ -241,11 +281,19 @@
 
     <h2>Spotify (optional)</h2>
     <div class="group">
-      <button class="row as-btn" id="btnSpotifyConnect">Spotify verbinden</button>
-      <label class="row col"><span>Client-ID</span>
-        <input type="text" id="setSpotifyId" placeholder="aus developer.spotify.com" autocapitalize="off" autocorrect="off" spellcheck="false">
-      </label>
+      <div class="row col"><span>So richtest du es ein</span>
+        <ol class="howto">
+          <li>Auf <b>developer.spotify.com/dashboard</b> anmelden und <b>Create app</b> wählen.</li>
+          <li>Namen frei wählen, bei <b>Redirect URI</b> exakt die Adresse unten eintragen, <b>Web API</b> ankreuzen.</li>
+          <li>Die <b>Client ID</b> von der App-Seite kopieren und hier einsetzen.</li>
+          <li>Dann auf <b>Spotify verbinden</b> tippen. Es braucht Spotify&nbsp;Premium.</li>
+        </ol>
+      </div>
       <div class="row col"><span>Redirect-URI (dort eintragen)</span><code id="redirectUri"></code></div>
+      <label class="row col"><span>Client-ID</span>
+        <input type="text" id="setSpotifyId" placeholder="z. B. 4c2a1f…" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+      <button class="row as-btn" id="btnSpotifyConnect">Spotify verbinden</button>
       <button class="row as-btn danger-text" id="btnSpotifyLogout">Spotify trennen</button>
     </div>
 
@@ -256,12 +304,18 @@
     </div>
 
     <p class="foot-note">
-      Navigation oder Musik antippen wechselt den großen Bereich; nach der
-      eingestellten Zeit springt die Anzeige von selbst zurück. Das Tempolimit
-      bleibt immer oben rechts. Bedienung nur im Stand.
+      Karte antippen → Ziel und Routenoptionen. Musik antippen → Wiedergabe und
+      zuletzt Gehörtes. Nach der eingestellten Zeit springt die Anzeige von selbst
+      zur Karte zurück. Bedienung nur im Stand.
     </p>
   </div>
 </section>
+
+<!-- Hinweis, solange die App in Safari statt vom Home-Bildschirm läuft. -->
+<button class="install-hint" id="installHint" hidden>
+  <b>Für Vollbild ohne Adresszeile:</b> Teilen-Menü → „Zum Home-Bildschirm“, dann
+  von dort starten. <i>Antippen zum Ausblenden</i>
+</button>
 
 <audio id="player" playsinline preload="auto"></audio>
 

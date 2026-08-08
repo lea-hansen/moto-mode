@@ -9,7 +9,9 @@ css/style.css         gesamtes Design (kein Blur, kein Glass, keine Verläufe)
 js/store.js           Einstellungen + Tourdaten (localStorage)
 js/gps.js             GPS: Tempo, Zonenerkennung, Tourstatistik
 js/limits.js          Tempolimit aus OpenStreetMap (Overpass) mit Offline-Cache
-js/nav.js             Abbiegenavigation: Route, Führung, Ansagen, Off-Route
+js/nav.js             Abbiegenavigation: Route, Alternativen, Führung, Ansagen
+js/poi.js             Umkreissuche: Tankstelle, Essen, Hotel, Parken, Werkstatt
+js/overpass.js        gemeinsame Warteschlange für alle Overpass-Abfragen
 js/map.js             Kartendarstellung auf MapLibre GL
 vendor/maplibre-gl.*  Kartenbibliothek, bewusst lokal statt per CDN
 js/audio.js           Web-Audio-Engine, Ducking, Ansagen
@@ -68,58 +70,58 @@ Tests am Gerät ist der Weg über die veröffentlichte Adresse der bequemere.
 
 ## Bedienung
 
-Drei feste Bereiche, nichts scrollt außer dem Setup.
+Drei feste Bereiche, nichts scrollt außer Setup und Routenplanung.
 
 ```
 Querformat                          Hochformat
 ┌───────────────┬──────────┐        ┌────────────────┐
-│               │ Tempo-   │        │  Tempolimit    │
-│  Navigation   │ limit    │        ├────────────────┤
-│    (2/3)      ├──────────┤        │  Navigation    │
-│               │  Musik   │        ├────────────────┤
-│               │  (2/3)   │        │  Musik         │
+│               │ ⃝50  🏙   │        │  ⃝50      🏙    │
+│    K A R T E  ├──────────┤        ├────────────────┤
+│     (2/3)     │  Musik   │        │  K A R T E     │
+│               │  (2/3)   │        ├────────────────┤
+│               │          │        │  Musik         │
 └───────────────┴──────────┘        └────────────────┘
 ```
 
-**Tempolimit** sitzt fest oben rechts und ist bewusst nicht antippbar: Schild,
-darunter `INNERORTS` / `AUSSERORTS` / `AUTOBAHN`, darunter Straße und Herkunft
-des Werts.
+**Tempolimit** sitzt fest oben rechts und ist nicht antippbar: links das Schild,
+rechts daneben die Ortslage als Piktogramm nach spanischem Vorbild — Ortstafel,
+Ortsende mit rotem Balken, Autobahnschild in Blau. Ein Bild braucht keine
+Übersetzung und ist im Vorbeischauen schneller erfasst als ein Wort. Darunter
+Straße und Herkunft des Werts.
+
+**Karte** füllt den großen Bereich. Läuft eine Route, steht darüber das nächste
+Manöver mit Entfernung; Restweg, Restzeit und Ankunft stehen oben in der
+Statusleiste. Unten links führt ein Knopf zur zweiten Seite.
 
 **Musik** — sechs gleich große Ziele, mehr nicht: zurück, Play/Pause, weiter,
 Mute, leiser, lauter. Der Balken darunter zeigt den Pegel (grün, wenn Smart
-Volume gerade eingreift; „STUMM" bei Mute).
+Volume eingreift; „STUMM" bei Mute). Antippen der Kopfzeile holt Titel und die
+drei zuletzt gehörten Quellen in den großen Bereich.
 
-**Navigation** zeigt die Karte, darüber das nächste Manöver mit Entfernung,
-darunter eine Tastenzeile. `ROUTE` berechnet die Strecke zum Ziel aus dem Setup;
-während der Fahrt stehen dort Restweg, Restzeit, Ankunftszeit und `STOPP`. Die
-drei kleinen Tasten daneben übergeben dasselbe Ziel an Apple Karten, Google Maps
-oder calimoto, falls du doch lieber dort fährst.
+**Zweite Seite** (Knopf auf der Karte) ist die Routenplanung im Vollbild:
 
-**Antippen der Kopfzeile** wechselt den großen Bereich:
+| Element | Funktion |
+|---|---|
+| Ziel-Feld + *Suchen* | Adresse oder Ort über Photon |
+| Kategorien | Tankstelle, Essen, Hotel, Parken, Werkstatt im Umkreis, nach Entfernung sortiert |
+| Trefferliste | antippen setzt das Ziel und berechnet sofort |
+| *Vermeiden* | Autobahn, Maut, Fähre, Unbefestigt — ändert die Route neu |
+| *Route berechnen* | zeigt Hauptroute und bis zu zwei Alternativen zur Auswahl |
+| *Route starten* | beginnt die Führung |
+| *STOPP* | beendet sie (nur während der Fahrt sichtbar) |
 
-| angetippt | großer Bereich zeigt | Navigation bzw. Musik rückt |
-|---|---|---|
-| Musik | laufender Titel und die drei zuletzt gehörten Quellen | in den kleinen Platz |
-| Navigation → `ROUTE ›` | Straße, Ortslage, Limit, Strecke, Fahrzeit, ø, max, Kurs, GPS-Genauigkeit | bleibt, wo sie ist |
+Nach **10 Sekunden ohne Berührung** springt die Anzeige von selbst zur Karte
+zurück. Jede Berührung stellt die Uhr zurück; die Zeit ist im Setup einstellbar
+(0 = aus).
 
-Nach **10 Sekunden ohne Berührung** springt die Anzeige von selbst in die
-Standardansicht zurück. Jede Berührung stellt die Uhr zurück, damit nichts
-mitten im Tippen wegspringt; die Zeit ist im Setup einstellbar (0 = aus).
+Die gefahrene Geschwindigkeit steht klein oben links — das Motorrad hat einen
+eigenen Tacho. Daneben erscheinen nur Auffälligkeiten: `GPS` bei fehlendem
+Signal, `DISPLAY` wenn der Wake-Lock nicht greift, `OFFLINE` ohne Netz. Ganz
+rechts das Zahnrad fürs Setup.
 
-Die gefahrene Geschwindigkeit steht klein oben links in der Statusleiste — das
-Motorrad hat einen eigenen Tacho. Rechts daneben erscheinen nur Auffälligkeiten:
-`GPS` bei fehlendem Signal, `DISPLAY` wenn der Wake-Lock nicht greift, `OFFLINE`
-ohne Netz. Ganz rechts das Zahnrad fürs Setup.
-
-**Zuletzt gehört:** Bei Spotify werden die drei zuletzt gespielten Playlists
-bzw. Alben gemerkt; ein Tipp startet sie wieder. Lokale Titel kann iOS nicht von
-sich aus erneut öffnen — dort führt der Tipp zurück in die Dateiauswahl.
-
-**Ziel** für die Navi-Apps steht im Setup, nicht im Fahrbetrieb: Ein Textfeld
-bedient man ohnehin nur im Stand.
-
-Ansage-Lautstärke und die Absenkung während einer Ansage liegen ebenfalls im
-Setup — im Fahrbetrieb bleiben die sechs Musiktasten.
+**Vollbild ohne Adresszeile** gibt es nur, wenn die App vom Home-Bildschirm
+gestartet wird — iOS bietet keinen Weg, das aus der Seite heraus zu erzwingen.
+Läuft sie in Safari, blendet sie unten einen Hinweis darauf ein.
 
 **Smart Volume** passt die Musik in drei Stufen an — Stadt / Landstraße /
 Autobahn. Schwellen und Pegel sind im Setup frei wählbar (Vorgabe: bis 60 km/h
@@ -128,11 +130,11 @@ Autobahn. Schwellen und Pegel sind im Setup frei wählbar (Vorgabe: bis 60 km/h
 ### Layout prüfen
 
 Bedienelemente wachsen und schrumpfen zwischen Mindest- und Maximalgrößen;
-Schild, Ziffern und Beschriftungen hängen per Container-Query an ihrem Bereich
-statt am Fenster. Ob das überall aufgeht, prüft:
+Schild, Piktogramm und Beschriftungen hängen per Container-Query an ihrem
+Bereich statt am Fenster. Ob das überall aufgeht, prüft:
 
 ```bash
-python3 serve.py                      # oder: python3 -m http.server 8000
+python3 -m http.server 8000
 open http://127.0.0.1:8000/tools/layout-audit.html
 ```
 
@@ -154,8 +156,13 @@ hier. Ausgelöst wird zweimal je Manöver: früh der Hinweis, kurz davor die
 Anweisung. Die Abstände wachsen mit dem Tempo, weil 200 m bei 100 km/h zu spät
 kommen.
 
-Im Setup einstellbar: Routenart (schnell / Landstraße bevorzugen / Autobahn
-meiden), Ansagen an/aus, Karte in Fahrtrichtung, Kartenstil sowie beide
+Auf der Planungsseite lassen sich **Autobahn, Maut, Fähren und unbefestigte
+Wege** abwählen; Valhalla kennt dafür keine harten Verbote, sondern Vorlieben —
+„vermeiden“ heißt also „nur wenn es gar nicht anders geht“. Zu jeder Route
+kommen bis zu **zwei Alternativen**, zwischen denen sich vor dem Start wählen
+lässt. Echtes Kurvenrouting kann Valhalla nicht.
+
+Im Setup: Ansagen an/aus, Karte in Fahrtrichtung, Kartenstil sowie beide
 Endpunkte, falls du eigene Server nutzen willst.
 
 **Was das kann und was nicht:**
@@ -182,6 +189,12 @@ und Tempolimit auf einem Bildschirm.
 Beide Dienste sind Gemeinschaftsangebote mit Fair-Use-Grenzen. Eine Route pro
 Fahrt fällt dort nicht ins Gewicht; wer dauernd neu berechnet, sollte einen
 eigenen Endpunkt eintragen.
+
+**Overpass erlaubt nur zwei gleichzeitige Anfragen je IP.** Tempolimit und
+POI-Suche würden sich sonst gegenseitig die Plätze wegnehmen — deshalb laufen
+beide über eine gemeinsame Warteschlange in `js/overpass.js`, immer nur eine
+Anfrage unterwegs. Ohne das schlägt die Tankstellensuche fehl, sobald die
+Limitabfrage gerade läuft.
 
 ### Navigation prüfen
 
@@ -255,10 +268,19 @@ Vier Dinge sind Plattformgrenzen, keine Auslassungen. Sie bestimmen den Aufbau:
 Fernsteuerung der nativen Spotify-App über die Web API — braucht Internet und
 Spotify Premium:
 
-1. Auf <https://developer.spotify.com/dashboard> eine App anlegen.
-2. Als **Redirect-URI** dort `https://lea-hansen.github.io/moto-mode/` eintragen —
-   exakt so, wie es im Setup angezeigt wird.
-3. Client-ID im Setup hinterlegen, dann *Spotify verbinden*.
+Ohne eigene **Client-ID** passiert gar nichts — Spotify verlangt für jede App
+ein eigenes Konto im Developer-Dashboard. Die Anleitung steht auch im Setup:
+
+1. Auf <https://developer.spotify.com/dashboard> anmelden, **Create app**.
+2. Namen frei wählen, bei **Redirect URI** exakt
+   `https://lea-hansen.github.io/moto-mode/` eintragen, **Web API** ankreuzen.
+3. Die **Client ID** von der App-Seite kopieren und im Setup einsetzen.
+4. Dann *Spotify verbinden*.
+
+**An die Spotify-App auf dem iPhone kommt eine Web-App nicht heran.** iOS gibt
+keiner Webseite Zugriff darauf, was eine andere App abspielt — es gibt dafür
+keine Schnittstelle. Die Web-API ist der einzige Weg; sie liest den Zustand über
+Spotifys Server, nicht vom Gerät.
 
 Play/Pause, Titelwechsel und Titelanzeige funktionieren damit. Die
 Gerätelautstärke lehnt Spotify auf iOS-Clients meist mit `403` ab — der

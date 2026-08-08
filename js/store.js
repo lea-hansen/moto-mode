@@ -29,7 +29,7 @@ const DEFAULTS = {
   back: 10,             // Sekunden bis zum Rücksprung in die Standardansicht (0 = aus)
   dest: '',             // Ziel für Route und Navi-Apps
 
-  routeStyle: 'country',    // fast | country | avoidHighway
+  avoid: { highway: false, toll: false, ferry: false, unpaved: false },
   navVoice: true,
   courseUp: true,
   mapStyle: 'positron',

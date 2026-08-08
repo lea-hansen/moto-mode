@@ -13,6 +13,7 @@
    `Annahme` (nur bei eindeutigen Straßentypen). Alles andere bleibt „—“. */
 
 import { settings } from './store.js';
+import { ask } from './overpass.js';
 
 const CACHE_KEY = 'moto.limits.v1';
 const MIN_INTERVAL = 12000;   // Overpass ist ein Gemeinschaftsdienst — sparsam abfragen
@@ -197,15 +198,8 @@ async function query(lat, lon, heading) {
     + `way(around:${RADIUS},${lat},${lon})["highway"~"^(${ROAD_TYPES})$"];`
     + `out tags geom 40;`;
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12000);
-
   try {
-    const res = await fetch(settings.overpass, { method: 'POST', body: ql, signal: ctrl.signal });
-    // 429/504 heißt „Server gerade überlastet“, nicht „kaputt“ — kurz aussetzen.
-    if (res.status === 429 || res.status === 504) { backoffUntil = Date.now() + BUSY_BACKOFF; throw new Error('busy'); }
-    if (!res.ok) throw new Error(String(res.status));
-    const data = await res.json();
+    const data = await ask(ql, 12000);
     const hit = pickWay(data.elements || [], lat, lon, heading);
 
     if (!hit) {
@@ -228,10 +222,9 @@ async function query(lat, lon, heading) {
     limit.state = 'ok';
   } catch (err) {
     if (!navigator.onLine) limit.state = 'offline';
-    else if (err && err.message === 'busy') limit.state = 'busy';
+    else if (err && err.busy) { backoffUntil = Date.now() + BUSY_BACKOFF; limit.state = 'busy'; }
     else { backoffUntil = Date.now() + BUSY_BACKOFF; limit.state = 'error'; }
   } finally {
-    clearTimeout(timer);
     inFlight = false;
     emit();
   }

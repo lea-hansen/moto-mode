@@ -14,10 +14,12 @@ import { settings } from './store.js';
 import { speak } from './audio.js';
 
 export const nav = {
-  state: 'idle',        // idle | geocoding | routing | active | offroute | arrived | error
+  state: 'idle',        // idle | geocoding | routing | planned | active | offroute | arrived | error
   error: '',
   dest: null,           // { lat, lon, name }
-  shape: [],            // [[lat, lon], …]
+  routes: [],           // Hauptroute und Alternativen
+  selected: 0,
+  shape: [],            // Geometrie der gewählten Route, [[lat, lon], …]
   maneuvers: [],
   idx: 0,               // Manöver, auf das gerade zugefahren wird
   distToTurn: 0,        // Meter
@@ -99,13 +101,18 @@ function matchToRoute(lat, lon) {
 
 /* ── Route holen ───────────────────────────────────────────────────────── */
 
-/** Kostenmodell aus den Einstellungen. Echtes Kurvenrouting kann Valhalla nicht —
-    „Autobahn meiden“ drückt die Route aber zuverlässig auf Landstraßen. */
+/** Kostenmodell aus den „Vermeiden“-Schaltern. Valhalla kennt keine harten
+    Verbote, sondern Vorlieben zwischen 0 und 1 — 0 heißt „nur wenn es gar nicht
+    anders geht“. Echtes Kurvenrouting kann es nicht. */
 function costingOptions() {
-  const style = settings.routeStyle;
-  if (style === 'avoidHighway') return { use_highways: 0.05, use_tolls: 0.0, use_trails: 0.1 };
-  if (style === 'country') return { use_highways: 0.3, use_tolls: 0.2 };
-  return { use_highways: 1.0, use_tolls: 0.5 };
+  const a = settings.avoid || {};
+  return {
+    use_highways: a.highway ? 0.05 : 0.6,
+    use_tolls: a.toll ? 0.0 : 0.5,
+    use_ferry: a.ferry ? 0.0 : 0.5,
+    use_trails: a.unpaved ? 0.0 : 0.2,
+    ...(a.unpaved ? { avoid_bad_surfaces: 1.0 } : {}),
+  };
 }
 
 export async function geocode(query, near) {
@@ -121,10 +128,23 @@ export async function geocode(query, near) {
   return { lat, lon, name: [p.name, p.city || p.town || p.village].filter(Boolean).join(', ') || query };
 }
 
-async function fetchRoute(from, to) {
+function tripToRoute(trip) {
+  const leg = trip?.legs?.[0];
+  if (!leg) return null;
+  return {
+    shape: decodePolyline(leg.shape),
+    maneuvers: leg.maneuvers || [],
+    length: (trip.summary?.length || 0) * 1000,
+    time: trip.summary?.time || 0,
+  };
+}
+
+/** Hauptroute plus bis zu zwei Alternativen. */
+async function fetchRoutes(from, to) {
   const body = {
     locations: [{ lat: from.lat, lon: from.lon }, { lat: to.lat, lon: to.lon }],
     costing: 'motorcycle',
+    alternates: 2,
     costing_options: { motorcycle: costingOptions() },
     directions_options: { language: 'de-DE', units: 'kilometers' },
   };
@@ -135,43 +155,65 @@ async function fetchRoute(from, to) {
   });
   if (!res.ok) throw new Error(`Routing ${res.status}`);
   const data = await res.json();
-  const leg = data?.trip?.legs?.[0];
-  if (!leg) throw new Error('Keine Route gefunden');
-  return {
-    shape: decodePolyline(leg.shape),
-    maneuvers: leg.maneuvers || [],
-    length: (data.trip.summary?.length || 0) * 1000,
-    time: data.trip.summary?.time || 0,
-  };
+
+  const list = [tripToRoute(data.trip), ...(data.alternates || []).map((a) => tripToRoute(a.trip))]
+    .filter(Boolean);
+  if (!list.length) throw new Error('Keine Route gefunden');
+  return list;
 }
 
-/** Neue Route von der aktuellen Position zum Ziel. */
-export async function start(from, destQuery) {
-  if (!navigator.onLine) { fail('Für die Routenberechnung fehlt die Verbindung'); return; }
+/** Route(n) berechnen, aber noch nicht führen. */
+export async function calculate(from, destQuery) {
+  if (!navigator.onLine) { fail('Für die Routenberechnung fehlt die Verbindung'); return false; }
 
   try {
     nav.state = 'geocoding'; nav.error = ''; emit();
     const dest = typeof destQuery === 'string' ? await geocode(destQuery, from) : destQuery;
 
     nav.state = 'routing'; emit();
-    const r = await fetchRoute(from, dest);
+    const list = await fetchRoutes(from, dest);
 
     nav.dest = dest;
-    nav.shape = r.shape;
-    nav.maneuvers = r.maneuvers;
-    nav.remainingM = r.length;
-    nav.remainingS = r.time;
-    totalTime = r.time;
-    nav.idx = 1;
-    lastSeg = 0;
-    spoken.clear();
-    prepare();
-
-    nav.state = 'active';
+    nav.routes = list;
+    applySelection(0);
+    nav.state = 'planned';
     emit();
-    if (settings.navVoice) speak(`Route berechnet. ${fmtKm(r.length)}, ${Math.round(r.time / 60)} Minuten.`);
+    return true;
   } catch (e) {
     fail(e.message || 'Routing fehlgeschlagen');
+    return false;
+  }
+}
+
+function applySelection(i) {
+  nav.selected = Math.max(0, Math.min(nav.routes.length - 1, i));
+  const r = nav.routes[nav.selected];
+  nav.shape = r.shape;
+  nav.maneuvers = r.maneuvers;
+  nav.remainingM = r.length;
+  nav.remainingS = r.time;
+  totalTime = r.time;
+  nav.idx = 1;
+  lastSeg = 0;
+  spoken.clear();
+  prepare();
+}
+
+/** Andere Alternative wählen — nur solange nicht gefahren wird. */
+export function chooseRoute(i) {
+  if (!nav.routes.length) return;
+  applySelection(i);
+  emit();
+}
+
+/** Führung aufnehmen. */
+export function begin() {
+  if (!nav.routes.length) return;
+  nav.state = 'active';
+  offRouteCount = 0;
+  emit();
+  if (settings.navVoice) {
+    speak(`Route gestartet. ${fmtKm(nav.remainingM)}, ${Math.round(nav.remainingS / 60)} Minuten.`);
   }
 }
 
@@ -183,6 +225,8 @@ function fail(msg) {
 
 export function stop() {
   nav.state = 'idle';
+  nav.routes = [];
+  nav.selected = 0;
   nav.shape = [];
   nav.maneuvers = [];
   nav.dest = null;
@@ -281,5 +325,5 @@ function checkOffRoute(lat, lon, dist) {
   if (!navigator.onLine || !nav.dest) return;
   if (Date.now() - lastReroute < 15000) return;
   lastReroute = Date.now();
-  start({ lat, lon }, nav.dest);
+  calculate({ lat, lon }, nav.dest).then((ok) => { if (ok) begin(); });
 }

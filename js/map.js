@@ -51,6 +51,12 @@ export async function initMap(container, styleName) {
   }
 
   map.on('load', () => {
+    map.addSource('alts', { type: 'geojson', data: emptyLine() });
+    map.addLayer({
+      id: 'alts-line', type: 'line', source: 'alts',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#6E6E73', 'line-width': 7 },
+    });
     map.addSource('route', { type: 'geojson', data: emptyLine() });
     // Zwei Linien: dunkle Fassung darunter, damit die Route auf jedem
     // Untergrund steht — auch auf hellen Straßenflächen.
@@ -95,6 +101,14 @@ export function setStyle(name) {
     .then((style) => {
       map.setStyle(style);
       map.once('styledata', () => {
+        if (!map.getSource('alts')) {
+          map.addSource('alts', { type: 'geojson', data: lastAlts || emptyLine() });
+          map.addLayer({
+            id: 'alts-line', type: 'line', source: 'alts',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': '#6E6E73', 'line-width': 7 },
+          });
+        }
         if (!map.getSource('route')) {
           map.addSource('route', { type: 'geojson', data: lastLine || emptyLine() });
           map.addLayer({
@@ -114,18 +128,42 @@ export function setStyle(name) {
 }
 
 let lastLine = null;
+let lastAlts = null;
 
-/** shape: [[lat, lon], …] — GeoJSON will die umgekehrte Reihenfolge. */
-export function setRoute(shape) {
-  lastLine = {
+function toLine(shape) {
+  return {
     type: 'Feature',
     geometry: { type: 'LineString', coordinates: shape.map(([la, lo]) => [lo, la]) },
     properties: {},
   };
+}
+
+/** shape: [[lat, lon], …] — GeoJSON will die umgekehrte Reihenfolge. */
+export function setRoute(shape) {
+  lastLine = toLine(shape);
   if (map && map.getSource('route')) map.getSource('route').setData(lastLine);
 }
 
-export function clearRoute() { setRoute([]); }
+/** Gewählte Route blau, die übrigen grau dahinter. */
+export function setRoutes(list, selected) {
+  setRoute(list[selected]?.shape || []);
+  lastAlts = {
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'MultiLineString',
+      coordinates: list.filter((_, i) => i !== selected)
+        .map((r) => r.shape.map(([la, lo]) => [lo, la])),
+    },
+  };
+  if (map && map.getSource('alts')) map.getSource('alts').setData(lastAlts);
+}
+
+export function clearRoute() {
+  setRoute([]);
+  lastAlts = null;
+  if (map && map.getSource('alts')) map.getSource('alts').setData(emptyLine());
+}
 
 function zoomForSpeed(kmh) {
   if (kmh < 25) return 16.4;

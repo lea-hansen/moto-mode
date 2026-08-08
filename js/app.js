@@ -12,6 +12,7 @@ import { limit, onLimit, updatePosition, clearCache, cacheSize } from './limits.
 import * as N from './nav.js';
 import { nav, onNav } from './nav.js';
 import * as M from './map.js';
+import * as POI from './poi.js';
 import * as A from './audio.js';
 import { audio, onAudio } from './audio.js';
 import * as S from './spotify.js';
@@ -82,14 +83,12 @@ const P = {
   nav: $('#panelNav'),
   music: $('#panelMusic'),
   player: $('#panelPlayer'),
-  route: $('#panelRoute'),
 };
 
 // Welcher Bereich bei welcher Ansicht wo liegt.
 const LAYOUT = {
   default: { main: P.nav,    side: P.music },
   music:   { main: P.player, side: P.nav },
-  route:   { main: P.route,  side: P.music },
 };
 
 let backTimer = null;
@@ -101,7 +100,6 @@ function setView(view) {
   app.dataset.view = view;
 
   if (view === 'music') renderPlaylists();
-  if (view === 'route') renderRoute();
   requestAnimationFrame(() => M.resize());   // Platz gewechselt → Karte neu vermessen
   armAutoBack();
 }
@@ -111,8 +109,9 @@ function setView(view) {
     mitten im Tippen wegspringt. */
 function armAutoBack() {
   clearTimeout(backTimer);
-  if (app.dataset.view === 'default' || !settings.back) return;
-  backTimer = setTimeout(() => setView('default'), settings.back * 1000);
+  const away = app.dataset.view !== 'default' || planSheet.classList.contains('open');
+  if (!away || !settings.back) return;
+  backTimer = setTimeout(() => { openPlan(false); setView('default'); }, settings.back * 1000);
 }
 
 [mainSlot, sideSlot].forEach((slot) =>
@@ -234,9 +233,10 @@ function renderLimit() {
     num.textContent = '—';
   }
 
+  // Ortslage als Piktogramm statt Wort.
   const area = areaLabel();
-  $('#areaTxt').textContent = area.text;
-  $('#areaTxt').dataset.src = area.src;
+  const PICTO = { Innerorts: 'town', 'Außerorts': 'rural', Autobahn: 'motorway' };
+  $('#areaSign').dataset.area = PICTO[area.text] || 'none';
 
   const parts = [];
   if (limit.road) parts.push(limit.road);
@@ -286,7 +286,6 @@ function renderTelemetry() {
 
   applySmart();
   renderLimit();
-  if (app.dataset.view === 'route') renderRoute();
 
   if (gps.fix) {
     N.update(gps.lat, gps.lon, gps.raw / 3.6);
@@ -296,29 +295,6 @@ function renderTelemetry() {
 
 onGps(renderTelemetry);
 onLimit(renderLimit);
-
-/* ── Route ─────────────────────────────────────────────────────────────── */
-
-function renderRoute() {
-  const conv = settings.unit === 'mph' ? 0.6213712 : 1;
-  const area = areaLabel();
-
-  $('#routeRoad').textContent = limit.road || (gps.fix ? 'Straße unbekannt' : 'warte auf Position');
-  $('#routeSub').textContent = [
-    area.text !== '—' ? area.text : null,
-    limit.free ? 'Limit frei' : (limit.kmh != null ? `Limit ${Math.round(limit.kmh)}` : null),
-    limit.source || null,
-  ].filter(Boolean).join(' · ') || 'keine Straßendaten';
-
-  $('#rDist').textContent = (trip.dist / (settings.unit === 'mph' ? 1609.34 : 1000)).toFixed(1);
-  $('#rTime').textContent = fmtDuration(trip.movingMs);
-  $('#rAvg').textContent = trip.samples ? Math.round((trip.sumKmh / trip.samples) * conv) : 0;
-  $('#rMax').textContent = Math.round(trip.maxKmh * conv);
-  $('#rHead').textContent = headingName(gps.heading);
-  $('#rAcc').textContent = gps.accuracy != null ? `${gps.accuracy} m` : '--';
-
-  $('#routeDest').textContent = settings.dest ? `Ziel: ${settings.dest}` : '';
-}
 
 /* ── Navigation ────────────────────────────────────────────────────────── */
 
@@ -357,21 +333,19 @@ const TURN_ARROW = {
   23: '↗', 24: '↖', 25: '↱', 26: '↻', 27: '↻', 37: '↑',
 };
 
+function fmtMin(sec) { return `${Math.round(sec / 60)} min`; }
+
 function renderNav() {
   const running = N.isActive();
-  $('#navIdle').hidden = running;
-  $('#navRun').hidden = !running;
   $('#turnBanner').hidden = !running;
 
-  const go = $('#btnGo');
-  if (nav.state === 'geocoding') go.textContent = 'ZIEL SUCHEN …';
-  else if (nav.state === 'routing') go.textContent = 'ROUTE RECHNEN …';
-  else if (nav.state === 'error') go.textContent = 'ERNEUT';
-  else if (nav.state === 'arrived') go.textContent = 'ANGEKOMMEN';
-  else go.textContent = 'ROUTE';
-  go.disabled = !settings.dest || nav.state === 'geocoding' || nav.state === 'routing';
-
+  // Restweg, Restzeit und Ankunft stehen oben in der Statusleiste.
+  const chip = $('#routeChip');
+  chip.hidden = !running;
   if (running) {
+    const eta = new Date(Date.now() + nav.remainingS * 1000);
+    chip.textContent = `${N.fmtKm(nav.remainingM)} · ${fmtMin(nav.remainingS)} · ${eta.getHours()}:${String(eta.getMinutes()).padStart(2, '0')}`;
+
     const turn = nav.maneuvers[nav.idx];
     $('#turnArrow').textContent = TURN_ARROW[turn?.type] || '↑';
     $('#turnDist').textContent = N.fmtKm(nav.distToTurn);
@@ -379,36 +353,12 @@ function renderNav() {
       ? 'Route verlassen'
       : (turn?.street_names?.join(', ') || turn?.instruction || '');
     $('#turnBanner').dataset.off = nav.state === 'offroute' ? '1' : '0';
-
-    const min = Math.round(nav.remainingS / 60);
-    const eta = new Date(Date.now() + nav.remainingS * 1000);
-    $('#navSum').textContent = `${N.fmtKm(nav.remainingM)} · ${min} min · an ${eta.getHours()}:${String(eta.getMinutes()).padStart(2, '0')}`;
-  } else if (nav.state === 'error') {
-    $('#navSum').textContent = nav.error;
   }
 
-  if (!running) M.clearRoute();
+  $('#btnPlan').textContent = running ? 'ROUTE' : 'ZIEL';
+  $('#btnNavStop').hidden = !running;
+  renderPlan();
 }
-
-let routeDrawn = null;
-onNav(() => {
-  renderNav();
-  if (nav.shape.length && routeDrawn !== nav.shape) {
-    routeDrawn = nav.shape;
-    M.setRoute(nav.shape);
-    M.fitRoute(nav.shape);
-  }
-  if (nav.state === 'error' || nav.state === 'arrived') setTimeout(renderNav, 50);
-});
-
-$('#btnGo').addEventListener('click', () => {
-  A.unlock();
-  if (!settings.dest) return;
-  if (!gps.fix) { nav.state = 'error'; nav.error = 'Warte auf GPS-Position'; renderNav(); return; }
-  N.start({ lat: gps.lat, lon: gps.lon }, settings.dest);
-});
-
-$('#btnNavStop').addEventListener('click', () => { N.stop(); renderNav(); });
 
 /** Karte erst aufbauen, wenn sie gebraucht wird — WebGL kostet sonst umsonst. */
 let mapStarted = false;
@@ -417,6 +367,189 @@ function ensureMap() {
   mapStarted = true;
   M.initMap($('#map'), settings.mapStyle).then(() => M.resize());
 }
+
+let drawnRoutes = null;
+onNav(() => {
+  if (nav.routes.length && nav.routes !== drawnRoutes) {
+    drawnRoutes = nav.routes;
+    M.setRoutes(nav.routes, nav.selected);
+    M.fitRoute(nav.shape);
+  } else if (nav.routes.length) {
+    M.setRoutes(nav.routes, nav.selected);
+  } else {
+    drawnRoutes = null;
+    M.clearRoute();
+  }
+  renderNav();
+});
+
+/* ── Zweite Seite: Ziel, Treffer, Alternativen, Optionen ───────────────── */
+
+const planSheet = $('#planSheet');
+let results = [];              // Trefferliste aus Suche oder Umkreis
+let listMode = 'results';      // results | routes
+let busy = '';
+
+function openPlan(on) {
+  planSheet.classList.toggle('open', on);
+  planSheet.setAttribute('aria-hidden', on ? 'false' : 'true');
+  if (on) { renderPlan(); armAutoBack(); } else { armAutoBack(); }
+}
+
+$('#btnPlan').addEventListener('click', () => { A.unlock(); openPlan(true); });
+$('#planBack').addEventListener('click', () => openPlan(false));
+planSheet.addEventListener('pointerdown', () => armAutoBack());
+
+function here() {
+  return gps.fix ? { lat: gps.lat, lon: gps.lon } : null;
+}
+
+function renderPlan() {
+  const running = N.isActive();
+  const planned = nav.state === 'planned';
+  $('#planTitle').textContent = running ? 'Route' : 'Ziel';
+
+  // Vermeiden-Schalter
+  $$('[data-avoid]').forEach((c) => { c.dataset.on = settings.avoid[c.dataset.avoid] ? '1' : '0'; });
+
+  const box = $('#planList');
+  box.textContent = '';
+
+  const show = (txt) => {
+    const d = document.createElement('div');
+    d.className = 'plan-empty';
+    d.textContent = txt;
+    box.appendChild(d);
+  };
+
+  if (busy) { show(busy); }
+  else if (nav.state === 'error') { show(nav.error); }
+  else if (listMode === 'routes' && nav.routes.length) {
+    nav.routes.forEach((r, i) => {
+      const b = document.createElement('button');
+      b.className = 'plan-item';
+      b.dataset.on = i === nav.selected ? '1' : '0';
+      b.innerHTML = '<span class="pi-badge"></span><span class="pi-text">'
+        + '<span class="pi-name"></span><span class="pi-meta"></span></span>';
+      b.querySelector('.pi-badge').textContent = i === 0 ? '★' : String(i + 1);
+      b.querySelector('.pi-name').textContent = `${N.fmtKm(r.length)} · ${fmtMin(r.time)}`;
+      b.querySelector('.pi-meta').textContent = i === 0 ? 'schnellste Route' : 'Alternative';
+      // Während der Fahrt nicht umschalten — das würde die Führung zerreißen.
+      if (!running) b.addEventListener('click', () => { N.chooseRoute(i); renderPlan(); });
+      box.appendChild(b);
+    });
+  } else if (results.length) {
+    results.slice(0, 5).forEach((r, i) => {
+      const b = document.createElement('button');
+      b.className = 'plan-item';
+      b.innerHTML = '<span class="pi-badge"></span><span class="pi-text">'
+        + '<span class="pi-name"></span><span class="pi-meta"></span></span>';
+      b.querySelector('.pi-badge').textContent = String(i + 1);
+      b.querySelector('.pi-name').textContent = r.name;
+      b.querySelector('.pi-meta').textContent =
+        [r.meta, r.dist != null ? N.fmtKm(r.dist) : null].filter(Boolean).join(' · ');
+      b.addEventListener('click', () => { A.unlock(); pickTarget(r); });
+      box.appendChild(b);
+    });
+  } else {
+    show(nav.dest ? `Ziel: ${nav.dest.name}` : 'Ziel eingeben oder eine Kategorie wählen.');
+  }
+
+  $('#btnCalc').hidden = running;
+  $('#btnStart').hidden = !(planned && !running);
+  $('#btnCalc').disabled = busy !== '' || (!nav.dest && !$('#destInput').value.trim());
+  $('#btnCalc').textContent = busy === 'Route wird berechnet …' ? 'RECHNET …' : 'ROUTE BERECHNEN';
+}
+
+async function withBusy(text, fn) {
+  busy = text;
+  renderPlan();
+  try { await fn(); } finally { busy = ''; renderPlan(); }
+}
+
+/** Ein Treffer wird zum Ziel und die Route sofort berechnet. */
+async function pickTarget(target) {
+  const from = here();
+  if (!from) { nav.error = 'Warte auf GPS-Position'; nav.state = 'error'; renderPlan(); return; }
+  set({ dest: target.name });
+  $('#destInput').value = target.name;
+  results = [];
+  await withBusy('Route wird berechnet …', async () => {
+    const ok = await N.calculate(from, { lat: target.lat, lon: target.lon, name: target.name });
+    if (ok) listMode = 'routes';
+  });
+}
+
+$('#btnSearch').addEventListener('click', () => doSearch());
+$('#destInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.target.blur(); doSearch(); } });
+$('#destInput').addEventListener('change', (e) => set({ dest: e.target.value.trim() }));
+
+async function doSearch() {
+  const q = $('#destInput').value.trim();
+  if (!q) return;
+  set({ dest: q });
+  listMode = 'results';
+  await withBusy('Ziel wird gesucht …', async () => {
+    try {
+      const hit = await N.geocode(q, here());
+      results = [{ ...hit, meta: 'Adresse' }];
+      nav.state = 'idle';
+      nav.error = '';
+    } catch (e) {
+      results = [];
+      nav.state = 'error';
+      nav.error = e.message || 'Ziel nicht gefunden';
+    }
+  });
+}
+
+$$('[data-poi]').forEach((c) => c.addEventListener('click', async () => {
+  A.unlock();
+  const from = here();
+  if (!from) { nav.state = 'error'; nav.error = 'Warte auf GPS-Position'; renderPlan(); return; }
+  listMode = 'results';
+  await withBusy(`${POI.POI_LABELS[c.dataset.poi]} wird gesucht …`, async () => {
+    try {
+      results = await POI.search(c.dataset.poi, from);
+      nav.state = 'idle';
+      nav.error = '';
+      if (!results.length) { nav.state = 'error'; nav.error = 'Nichts in der Nähe gefunden'; }
+    } catch (e) {
+      results = [];
+      nav.state = 'error';
+      nav.error = e.message || 'Suche fehlgeschlagen';
+    }
+  });
+}));
+
+$$('[data-avoid]').forEach((c) => c.addEventListener('click', () => {
+  const key = c.dataset.avoid;
+  set({ avoid: { ...settings.avoid, [key]: !settings.avoid[key] } });
+  renderPlan();
+  // Liegt schon eine Route vor, mit den neuen Vorgaben neu rechnen.
+  if (nav.dest && !N.isActive()) {
+    const from = here();
+    if (from) withBusy('Route wird berechnet …', async () => {
+      const ok = await N.calculate(from, nav.dest);
+      if (ok) listMode = 'routes';
+    });
+  }
+}));
+
+$('#btnCalc').addEventListener('click', async () => {
+  A.unlock();
+  const from = here();
+  if (!from) { nav.state = 'error'; nav.error = 'Warte auf GPS-Position'; renderPlan(); return; }
+  const target = nav.dest || $('#destInput').value.trim();
+  if (!target) return;
+  await withBusy('Route wird berechnet …', async () => {
+    const ok = await N.calculate(from, target);
+    if (ok) listMode = 'routes';
+  });
+});
+
+$('#btnStart').addEventListener('click', () => { A.unlock(); N.begin(); openPlan(false); });
+$('#btnNavStop').addEventListener('click', () => { N.stop(); results = []; listMode = 'results'; openPlan(false); });
 
 /* ── Musik ─────────────────────────────────────────────────────────────── */
 
@@ -535,7 +668,6 @@ function renderSettings() {
   $('#setSource').value = settings.source;
   $('#setSpotifyId').value = settings.spotifyId;
   $('#setOverpass').value = settings.overpass;
-  $('#setRouteStyle').value = settings.routeStyle;
   $('#setMapStyle').value = settings.mapStyle;
   $('#setValhalla').value = settings.valhalla;
   $('#setPhoton').value = settings.photon;
@@ -563,8 +695,6 @@ Object.entries(CHECKS).forEach(([id, key]) => {
   });
 });
 
-$('#destInput').addEventListener('change', (e) => { set({ dest: e.target.value.trim() }); renderNav(); });
-$('#setRouteStyle').addEventListener('change', (e) => set({ routeStyle: e.target.value }));
 $('#setValhalla').addEventListener('change', (e) => set({ valhalla: e.target.value.trim() }));
 $('#setPhoton').addEventListener('change', (e) => set({ photon: e.target.value.trim() }));
 $('#setMapStyle').addEventListener('change', (e) => { set({ mapStyle: e.target.value }); M.setStyle(e.target.value); });
@@ -595,7 +725,7 @@ $('#setSpotifyId').addEventListener('change', (e) => set({ spotifyId: e.target.v
 $('#setOverpass').addEventListener('change', (e) => set({ overpass: e.target.value.trim() }));
 $('#btnSpotifyLogout').addEventListener('click', () => { S.logout(); renderMusic(); });
 $('#btnLimitCache').addEventListener('click', () => { clearCache(); $('#limitCacheCount').textContent = '0'; });
-$('#btnTripReset').addEventListener('click', () => { resetTrip(); renderRoute(); });
+$('#btnTripReset').addEventListener('click', () => { resetTrip(); });
 $('#btnFactory').addEventListener('click', () => { resetSettings(); location.reload(); });
 
 /* ── Start ─────────────────────────────────────────────────────────────── */
@@ -625,6 +755,22 @@ function boot() {
   ensureMap();
 }
 addEventListener('pointerdown', boot, { once: true });
+
+/* Ohne Home-Bildschirm-Start bleibt die Safari-Adresszeile stehen — iOS bietet
+   keinen Weg, das aus der Seite heraus zu erzwingen. Also sagen wir es. */
+(function installHint() {
+  const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const standalone = navigator.standalone === true
+    || matchMedia('(display-mode: standalone)').matches
+    || matchMedia('(display-mode: fullscreen)').matches;
+  if (!iOS || standalone || localStorage.getItem('moto.hint.dismissed')) return;
+  const hint = $('#installHint');
+  hint.hidden = false;
+  hint.addEventListener('click', () => {
+    hint.hidden = true;
+    try { localStorage.setItem('moto.hint.dismissed', '1'); } catch {}
+  });
+})();
 
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
