@@ -50,7 +50,20 @@ function baseSession() {
 
 /* ── Graph ─────────────────────────────────────────────────────────────── */
 
-/** Muss aus einer Nutzergeste heraus aufgerufen werden (iOS-Autoplay-Policy). */
+/** Sprachausgabe freischalten. Kostet keine Audio-Session und darf deshalb bei
+    jeder Berührung laufen — anders als der AudioContext. */
+export function primeSpeech() {
+  if (!('speechSynthesis' in window) || primeSpeech.done) return;
+  primeSpeech.done = true;
+  const u = new SpeechSynthesisUtterance(' ');
+  u.volume = 0;
+  try { speechSynthesis.speak(u); } catch {}
+}
+
+/** AudioContext anlegen und wecken. Nur aufrufen, wenn die App gleich selbst
+    Ton macht: Auf iOS hält eine Seite mit laufendem Context eine Audio-Session,
+    und die kann fremde Wiedergabe — etwa Spotify — unterbrechen oder absenken.
+    Muss aus einer Nutzergeste heraus geschehen (iOS-Autoplay-Policy). */
 export function unlock() {
   if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -68,15 +81,17 @@ export function unlock() {
   }
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   setSession(baseSession());
-  // SpeechSynthesis auf iOS ebenfalls einmalig freischalten.
-  if ('speechSynthesis' in window && !unlock.spoke) {
-    unlock.spoke = true;
-    const u = new SpeechSynthesisUtterance(' ');
-    u.volume = 0;
-    try { speechSynthesis.speak(u); } catch {}
-  }
+  primeSpeech();
   return true;
 }
+
+/** Audio-Session wieder freigeben, damit fremde Wiedergabe ungestört läuft. */
+export function releaseAudio() {
+  if (!ctx || audio.playing) return;
+  ctx.suspend().catch(() => {});
+}
+
+export function hasContext() { return !!ctx; }
 
 let autoFactor = 1;
 
@@ -119,6 +134,7 @@ export function loadFiles(fileList) {
     artist: 'Lokale Datei',
   }));
   audio.index = -1;
+  claimMediaKeys(true);
   pushRecent({
     kind: 'local',
     name: audio.tracks[0].title,
@@ -176,7 +192,8 @@ export function speak(text) {
   u.volume = settings.voiceVol;
   u.rate = 1.05;
 
-  duckOn();
+  // Nur absenken, wenn eigene Musik läuft. Fremden Ton senkt iOS von selbst ab.
+  if (audio.playing) duckOn();
   u.onend = duckOff;
   u.onerror = duckOff;
   try { speechSynthesis.speak(u); } catch { duckOff(); }
@@ -211,10 +228,15 @@ function updateMediaSession() {
   });
 }
 
-if ('mediaSession' in navigator) {
+/* Die Fernbedienungstasten — Helm-Headset, Kontrollzentrum — nur beanspruchen,
+   wenn die App tatsächlich der Player ist. Sonst leitet iOS sie auf diese Seite
+   um, und der leere lokale Player verschluckt sie, statt Spotify zu steuern. */
+export function claimMediaKeys(on) {
+  if (!('mediaSession' in navigator)) return;
   const set = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
-  set('play', play);
-  set('pause', pause);
-  set('nexttrack', next);
-  set('previoustrack', prev);
+  set('play', on ? play : null);
+  set('pause', on ? pause : null);
+  set('nexttrack', on ? next : null);
+  set('previoustrack', on ? prev : null);
+  try { navigator.mediaSession.playbackState = on && audio.playing ? 'playing' : 'none'; } catch {}
 }

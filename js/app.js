@@ -151,7 +151,7 @@ function armAutoBack() {
   slot.addEventListener('pointerdown', () => { if (app.dataset.view !== 'default') armAutoBack(); }));
 
 $$('[data-open]').forEach((btn) =>
-  btn.addEventListener('click', () => { A.unlock(); setView(btn.dataset.open); }));
+  btn.addEventListener('click', () => setView(btn.dataset.open)));
 
 /* ── Lautstärke ────────────────────────────────────────────────────────── */
 
@@ -165,7 +165,7 @@ function renderVolume() {
   // Bei Spotify auf dem iPhone lässt sich die Lautstärke nicht fernsteuern —
   // das sagt Spotify selbst über `supports_volume`. Dann lieber sagen, wo sie
   // sich einstellen lässt, statt einen wirkungslosen Regler zu zeigen.
-  const remote = isSpotify() && !spotify.canVolume;
+  const remote = isSpotify() && spotify.canVolume === false;
   $('#btnVolUp').disabled = remote;
   $('#btnVolDown').disabled = remote;
   $('#volFill').style.width = remote ? '0%' : `${settings.muted ? 0 : Math.min(100, eff)}%`;
@@ -183,8 +183,8 @@ function changeVolume(delta) {
   renderVolume();
 }
 
-$('#btnVolUp').addEventListener('click', () => { A.unlock(); changeVolume(0.05); });
-$('#btnVolDown').addEventListener('click', () => { A.unlock(); changeVolume(-0.05); });
+$('#btnVolUp').addEventListener('click', () => changeVolume(0.05));
+$('#btnVolDown').addEventListener('click', () => changeVolume(-0.05));
 
 /* ── Mute ──────────────────────────────────────────────────────────────── */
 
@@ -218,7 +218,7 @@ function setMuted(on) {
   renderVolume();
 }
 
-$('#btnMute').addEventListener('click', () => { A.unlock(); setMuted(!settings.muted); });
+$('#btnMute').addEventListener('click', () => setMuted(!settings.muted));
 
 /* ── Smart Volume ──────────────────────────────────────────────────────── */
 
@@ -452,7 +452,7 @@ function openPlan(on) {
   } else armAutoBack();
 }
 
-$('#btnPlan').addEventListener('click', () => { A.unlock(); openPlan(true); });
+$('#btnPlan').addEventListener('click', () => openPlan(true));
 $('#planBack').addEventListener('click', () => openPlan(false));
 planSheet.addEventListener('pointerdown', () => armAutoBack());
 
@@ -514,7 +514,7 @@ function listRow(entry, badge, onPick) {
     if (listMode === 'fav') renderPlan();
   });
 
-  b.addEventListener('click', () => { A.unlock(); onPick(); });
+  b.addEventListener('click', () => onPick());
   return b;
 }
 
@@ -631,7 +631,6 @@ async function doSearch() {
 }
 
 $$('[data-poi]').forEach((c) => c.addEventListener('click', async () => {
-  A.unlock();
   const from = here();
   if (!from) { nav.state = 'error'; nav.error = 'Warte auf GPS-Position'; renderPlan(); return; }
   listMode = 'results';
@@ -665,7 +664,6 @@ $$('[data-list]').forEach((c) => c.addEventListener('click', () => {
 }));
 
 $('#btnCalc').addEventListener('click', async () => {
-  A.unlock();
   const from = here();
   if (!from) { nav.state = 'error'; nav.error = 'Warte auf GPS-Position'; renderPlan(); return; }
   const typed = $('#destInput').value.trim();
@@ -676,7 +674,7 @@ $('#btnCalc').addEventListener('click', async () => {
   });
 });
 
-$('#btnStart').addEventListener('click', () => { A.unlock(); N.begin(); openPlan(false); });
+$('#btnStart').addEventListener('click', () => { N.begin(); openPlan(false); });
 $('#btnNavStop').addEventListener('click', () => { N.stop(); results = []; listMode = 'recent'; openPlan(false); });
 
 /* ── Musik ─────────────────────────────────────────────────────────────── */
@@ -733,17 +731,18 @@ function renderPlaylists() {
     b.querySelector('.pl-meta').textContent =
       (isSpotify() || r.kind === 'spotify') ? r.meta : `${r.meta} · erneut wählen`;
     b.addEventListener('click', () => {
-      A.unlock();
       if (isSpotify() || r.kind === 'spotify') S.playContext(r.uri, true);   // zufällige Reihenfolge
-      else $('#filePick').click();
+      else { A.unlock(); $('#filePick').click(); }
     });
     box.appendChild(b);
   });
 }
 
-$('#btnPlay').addEventListener('click', () => { A.unlock(); isSpotify() ? S.toggle() : A.toggle(); });
-$('#btnNext').addEventListener('click', () => { A.unlock(); isSpotify() ? S.next() : A.next(); });
-$('#btnPrev').addEventListener('click', () => { A.unlock(); isSpotify() ? S.prev() : A.prev(); });
+// Der AudioContext wird nur für eigene Wiedergabe geweckt — bei Spotify
+// würde er iOS eine Audio-Session abverlangen und fremden Ton stören.
+$('#btnPlay').addEventListener('click', () => { if (!isSpotify()) A.unlock(); isSpotify() ? S.toggle() : A.toggle(); });
+$('#btnNext').addEventListener('click', () => { if (!isSpotify()) A.unlock(); isSpotify() ? S.next() : A.next(); });
+$('#btnPrev').addEventListener('click', () => { if (!isSpotify()) A.unlock(); isSpotify() ? S.prev() : A.prev(); });
 
 onAudio(() => { renderMusic(); if (app.dataset.view === 'music') renderPlaylists(); });
 onSpotify(() => { renderMusic(); if (app.dataset.view === 'music') renderPlaylists(); });
@@ -791,7 +790,7 @@ const openSheet = (on) => {
   sheet.setAttribute('aria-hidden', on ? 'false' : 'true');
   if (on) clearTimeout(backTimer); else armAutoBack();
 };
-$('#btnSettings').addEventListener('click', () => { A.unlock(); openSheet(true); });
+$('#btnSettings').addEventListener('click', () => openSheet(true));
 $('#sheetClose').addEventListener('click', () => openSheet(false));
 
 const NUMS = { setT1: 't1', setT2: 't2', setG1: 'g1', setG2: 'g2', setG3: 'g3', setTol: 'tol', setBack: 'back' };
@@ -849,9 +848,17 @@ $('#setMapStyleNight').addEventListener('change', (e) => { set({ mapStyleNight: 
 $('#setUnit').addEventListener('change', (e) => { set({ unit: e.target.value }); renderTelemetry(); });
 
 $('#setSource').addEventListener('change', (e) => {
-  A.unlock();
   set({ source: e.target.value });
-  if (isSpotify()) { S.startPolling(); S.loadPlaylists().catch(() => {}); } else S.stopPolling();
+  if (isSpotify()) {
+    A.pause();
+    A.claimMediaKeys(false);      // Headset-Tasten gehören dann Spotify
+    A.releaseAudio();
+    S.startPolling();
+    S.loadPlaylists().catch(() => {});
+  } else {
+    S.stopPolling();
+    A.claimMediaKeys(audio.tracks.length > 0);
+  }
   renderMusic();
 });
 
@@ -864,7 +871,7 @@ $('#filePick').addEventListener('change', (e) => {
 });
 
 $('#btnTestVoice').addEventListener('click', () => {
-  A.unlock();
+  A.primeSpeech();               // Ansage braucht keinen AudioContext
   A.speak(phrases(settings.navLang).testVoice(Math.round(settings.voiceVol * 100)));
 });
 
@@ -908,6 +915,7 @@ Object.entries(LANGS).forEach(([id, label]) => {
 });
 
 applyTheme(true);
+A.claimMediaKeys(!isSpotify() && audio.tracks.length > 0);
 renderSettings();
 renderMusic();
 renderTelemetry();
@@ -922,7 +930,7 @@ S.handleRedirect().then(() => {
 // GPS, Wake Lock und AudioContext erst bei der ersten Berührung starten —
 // so kommt der Standort-Dialog im richtigen Moment und iOS lässt Audio zu.
 function boot() {
-  A.unlock();
+  A.primeSpeech();               // kostet keine Audio-Session
   acquireWakeLock();
   startGps();
   ensureMap();

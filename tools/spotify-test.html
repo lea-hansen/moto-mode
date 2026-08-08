@@ -1,0 +1,93 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Spotify-Ablauftest</title></head>
+<body style="background:#000;color:#eee;font:13px ui-monospace,Menlo,monospace;padding:16px">
+<pre id="out">läuft …</pre><audio id="player"></audio>
+<script>window.onerror=(m,s,l)=>{out.textContent='FEHLER: '+m+' @'+l;};</script>
+<script type="module">
+const out = document.getElementById('out'); const L = []; let fails = 0;
+const ok = (c, t) => { L.push(`  ${c ? 'ok  ' : 'FAIL'}  ${t}`); if (!c) fails++; };
+
+/* Spotify nachbilden: Zustand, Aufrufprotokoll, steuerbare Fehler. */
+const srv = { playing: false, shuffle: false, deviceActive: true, ctx: null, fail: null, calls: [] };
+const real = window.fetch;
+window.fetch = (u, o = {}) => {
+  const url = String(u);
+  if (!url.includes('api.spotify.com')) return real(u, o);
+  const path = url.replace('https://api.spotify.com/v1', '').split('?')[0];
+  const qs = new URLSearchParams(url.split('?')[1] || '');
+  srv.calls.push(`${o.method || 'GET'} ${path}${qs.get('device_id') ? ' [dev]' : ''}`);
+  const json = (b, st = 200) => Promise.resolve(new Response(JSON.stringify(b), { status: st, headers: { 'Content-Type': 'application/json' } }));
+
+  if (srv.fail) return Promise.resolve(new Response('{}', { status: srv.fail, headers: srv.fail === 429 ? { 'Retry-After': '1' } : {} }));
+  if (path === '/me/player/devices')
+    return json({ devices: [{ id: 'dev1', name: 'iPhone', type: 'Smartphone', is_active: srv.deviceActive, supports_volume: false }] });
+  if (path === '/me/player') {
+    if (o.method === 'PUT') { srv.deviceActive = true; return Promise.resolve(new Response(null, { status: 204 })); }
+    return json({ is_playing: srv.playing, device: { name: 'iPhone', supports_volume: false },
+      context: srv.ctx ? { uri: srv.ctx } : null,
+      item: { name: 'Highway Star', artists: [{ name: 'Deep Purple' }] } });
+  }
+  if (path === '/me/player/play') { srv.playing = true; if (o.body) srv.ctx = JSON.parse(o.body).context_uri; return Promise.resolve(new Response(null, { status: 204 })); }
+  if (path === '/me/player/pause') { srv.playing = false; return Promise.resolve(new Response(null, { status: 204 })); }
+  if (path === '/me/player/next' || path === '/me/player/previous') return Promise.resolve(new Response(null, { status: 204 }));
+  if (path === '/me/player/shuffle') { srv.shuffle = qs.get('state') === 'true'; return Promise.resolve(new Response(null, { status: 204 })); }
+  if (path === '/me/playlists') return json({ items: [{ uri: 'spotify:playlist:a', name: 'Pirineus', tracks: { total: 42 }, owner: { display_name: 'lea' } }] });
+  if (path === '/me/player/recently-played') return json({ items: [{ played_at: '2026-08-08', context: { uri: 'spotify:playlist:b' } }] });
+  if (path.startsWith('/playlists/')) return json({ name: 'Carretera Nacional' });
+  return json({});
+};
+
+localStorage.setItem('moto.spotify.token', JSON.stringify({ access: 'x', refresh: 'y', expires: Date.now() + 36e5 }));
+localStorage.setItem('moto.settings.v1', JSON.stringify({ spotifyId: 'id', source: 'spotify' }));
+
+const S = await import('../js/spotify.js');
+const { spotify } = S;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+L.push('— Wiedergabe steuern —');
+await S.play();  await wait(50);
+ok(srv.playing === true, 'Play startet die Wiedergabe');
+ok(spotify.playing === true, 'Anzeige steht auf „läuft“');
+await S.pause(); await wait(50);
+ok(srv.playing === false, 'Pause hält an');
+ok(spotify.playing === false, 'Anzeige steht auf „pausiert“');
+await S.play();  await wait(50);
+ok(srv.playing === true, 'Play nach Pause startet erneut');
+
+L.push('— Gerät fällt weg (der Fall aus der Praxis) —');
+srv.deviceActive = false; srv.playing = false;
+await S.play(); await wait(50);
+ok(srv.playing === true, 'Play holt das Gerät zurück und startet');
+
+L.push('— Anfragen je Tastendruck —');
+srv.calls = []; await S.next(); await wait(20);
+ok(srv.calls.length === 1, `Weiter = 1 Anfrage (war ${srv.calls.length})`);
+ok(srv.calls[0].includes('[dev]'), 'Befehl trägt die Geräte-ID');
+
+L.push('— Playlist mit Zufallswiedergabe —');
+await S.playContext('spotify:playlist:a', true); await wait(50);
+ok(srv.shuffle === true, 'Zufallswiedergabe wird vorher gesetzt');
+ok(srv.ctx === 'spotify:playlist:a', 'Die gewählte Playlist läuft');
+
+L.push('— Playlists laden —');
+const pls = await S.loadPlaylists();
+ok(pls.length === 2, `Zuletzt gehört und eigene zusammengeführt (${pls.length})`);
+ok(pls[0].name === 'Carretera Nacional', 'Zuletzt Gehörtes steht oben');
+
+L.push('— Fehlerfälle —');
+srv.fail = 404; spotify.playing = true;
+await S.pause(); await wait(500);
+ok(spotify.playing === true, 'Nach fehlgeschlagenem Pause bleibt die Anzeige ehrlich');
+srv.fail = 429; srv.calls = [];
+await S.next(); await S.next(); await wait(20);
+ok(srv.calls.length <= 2, `Bei 429 wird nicht weiter geflutet (${srv.calls.length} Anfragen)`);
+srv.fail = null;
+
+L.push('— Lautstärke —');
+spotify.canVolume = null;
+const volOk = await S.setVolume(0.5);
+ok(volOk === true || spotify.canVolume === false, 'Lautstärke wird versucht und bei Ablehnung abgeschaltet');
+
+L.push('');
+L.push(fails ? `ERGEBNIS: ${fails} Prüfung(en) fehlgeschlagen` : 'ERGEBNIS: alle Prüfungen bestanden');
+out.textContent = L.join('\n');
+</script></body></html>

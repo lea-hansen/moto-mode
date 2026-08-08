@@ -21,7 +21,7 @@ export const spotify = {
   title: '',
   artist: '',
   volume: null,
-  canVolume: false,   // iOS-Geräte lassen die Lautstärke nicht fernsteuern
+  canVolume: null,    // null = noch unbekannt, false = vom Gerät abgelehnt
   device: null,       // Name des aktiven Geräts
   playlists: [],      // eigene Playlists
   error: null,

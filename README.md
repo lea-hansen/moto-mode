@@ -25,6 +25,8 @@ serve.py              HTTPS-Dev-Server für den iPhone-Test
 tools/make_icons.py   erzeugt die Icons neu
 tools/layout-audit.html  prüft alle Geräte×Ansichten auf überlaufenden Inhalt
 tools/nav-test.html      holt eine echte Route und prüft Führung und Ansagen
+tools/spotify-test.html  spielt den ganzen Spotify-Ablauf gegen eine
+                         nachgebildete API durch
 ```
 
 ## Auf dem iPhone installieren
@@ -345,6 +347,13 @@ keine Schnittstelle. Die Web-API ist der einzige Weg; sie liest den Zustand übe
 Spotifys Server, nicht vom Gerät.
 
 Play/Pause, Titelwechsel, Playlistwahl und Titelanzeige funktionieren damit.
+
+**Zwei Dinge fasst die App bewusst nicht an, solange Spotify die Quelle ist:**
+den AudioContext und die Fernbedienungstasten. Ein laufender AudioContext lässt
+iOS der Seite eine Audio-Session zuteilen, die fremde Wiedergabe unterbricht;
+und wer `mediaSession`-Handler registriert, bekommt die Tasten des Helm-Headsets
+zugeleitet — die dann im leeren lokalen Player verschwinden statt Spotify zu
+steuern. Beides passiert erst, wenn die App selbst Musik abspielt.
 
 **Die Lautstärke lässt sich nicht fernsteuern**, und das ist keine Nachlässigkeit
 in dieser App: Spotify meldet für iOS-Geräte selbst `supports_volume: false` und
