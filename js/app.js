@@ -129,7 +129,10 @@ function setView(view) {
   if (sideSlot.firstElementChild !== plan.side) sideSlot.replaceChildren(plan.side);
   app.dataset.view = view;
 
-  if (view === 'music') renderPlaylists();
+  if (view === 'music') {
+    renderPlaylists();
+    if (isSpotify() && spotify.connected) S.loadPlaylists().catch(() => {});
+  }
   requestAnimationFrame(() => M.resize());   // Platz gewechselt → Karte neu vermessen
   armAutoBack();
 }
@@ -158,9 +161,17 @@ function renderVolume() {
   const meter = $('.meter');
   meter.dataset.muted = settings.muted ? '1' : '0';
   meter.dataset.auto = settings.smart && !settings.muted ? '1' : '0';
-  $('#volFill').style.width = `${settings.muted ? 0 : Math.min(100, eff)}%`;
-  $('#volTxt').textContent = settings.muted
-    ? 'STUMM'
+
+  // Bei Spotify auf dem iPhone lässt sich die Lautstärke nicht fernsteuern —
+  // das sagt Spotify selbst über `supports_volume`. Dann lieber sagen, wo sie
+  // sich einstellen lässt, statt einen wirkungslosen Regler zu zeigen.
+  const remote = isSpotify() && !spotify.canVolume;
+  $('#btnVolUp').disabled = remote;
+  $('#btnVolDown').disabled = remote;
+  $('#volFill').style.width = remote ? '0%' : `${settings.muted ? 0 : Math.min(100, eff)}%`;
+  $('#volTxt').textContent = remote
+    ? 'LAUTSTÄRKE AM IPHONE'
+    : settings.muted ? 'STUMM'
     : (settings.smart && eff !== pct ? `${pct}→${eff}%` : `${pct}%`);
 }
 
@@ -426,7 +437,11 @@ let busy = '';
 function openPlan(on) {
   planSheet.classList.toggle('open', on);
   planSheet.setAttribute('aria-hidden', on ? 'false' : 'true');
-  if (on) { renderPlan(); armAutoBack(); } else { armAutoBack(); }
+  if (on) {
+    renderPlan();
+    requestAnimationFrame(() => renderPlan());   // jetzt steht die Höhe fest
+    armAutoBack();
+  } else armAutoBack();
 }
 
 $('#btnPlan').addEventListener('click', () => { A.unlock(); openPlan(true); });
@@ -435,6 +450,16 @@ planSheet.addEventListener('pointerdown', () => armAutoBack());
 
 function here() {
   return gps.fix ? { lat: gps.lat, lon: gps.lon } : null;
+}
+
+const ROW_MIN = 56;     // darunter wird eine Zeile mit Name und Zusatz unleserlich
+
+/** Zeilen, die ohne Abschneiden in die Liste passen. */
+function fittingRows(box) {
+  const h = box.getBoundingClientRect().height;
+  if (!h) return 3;                        // Blatt noch zu, später neu gerechnet
+  const gap = 8;
+  return Math.max(1, Math.min(4, Math.floor((h + gap) / (ROW_MIN + gap))));
 }
 
 function renderStops() {
@@ -530,7 +555,10 @@ function renderPlan() {
         : listMode === 'recent' ? 'Noch keine Ziele angefahren.'
         : 'Ziel eingeben oder eine Kategorie wählen.');
     } else {
-      items.slice(0, 5).forEach((r, i) => box.appendChild(listRow(r, String(i + 1), () => pickTarget(r))));
+      // Wie viele Zeilen passen wirklich? Auf dem kleinsten Display sind es
+      // zwei, auf einem Pro Max vier — geraten wurde das vorher, jetzt gemessen.
+      items.slice(0, fittingRows(box)).forEach((r, i) =>
+        box.appendChild(listRow(r, String(i + 1), () => pickTarget(r))));
     }
   }
 
@@ -656,10 +684,14 @@ function renderMusic() {
     : (audio.title || 'Keine Wiedergabe');
   $('#npArtist').textContent = sp
     ? (spotify.error || spotify.artist
-        || (spotify.connected ? 'Wiedergabe in der Spotify-App starten' : 'Im Setup verbinden'))
+        || (spotify.connected ? (spotify.device ? `Bereit auf ${spotify.device}` : 'Spotify-App auf dem iPhone öffnen') : 'Im Setup verbinden'))
     : (audio.artist || 'Titel im Setup laden');
 
-  $('#btnPlay').textContent = (sp ? spotify.playing : audio.playing) ? '❚❚' : '▶';
+  // Der Knopf zeigt, was er tut: läuft etwas, bietet er Pause an.
+  const playing = sp ? spotify.playing : audio.playing;
+  const hasSource = sp ? spotify.connected : audio.tracks.length > 0;
+  $('#btnPlay').textContent = playing ? '❚❚' : '▶';
+  $('#eq').dataset.state = playing ? 'playing' : (hasSource ? 'paused' : 'idle');
   $('#btnSpotifyConnect').textContent = spotify.connected ? 'Spotify neu verbinden' : 'Spotify verbinden';
   renderVolume();
 }
@@ -668,17 +700,20 @@ function renderPlaylists() {
   const box = $('#plList');
   box.textContent = '';
 
-  if (!settings.recent.length) {
+  // Bei Spotify die eigenen Playlists, sonst die zuletzt geladenen Titel.
+  const items = isSpotify() ? spotify.playlists.slice(0, 3) : settings.recent;
+
+  if (!items.length) {
     const empty = document.createElement('div');
     empty.className = 'pl-empty';
     empty.textContent = isSpotify()
-      ? 'Noch nichts gehört. Eine Playlist in der Spotify-App starten — sie erscheint dann hier.'
+      ? (spotify.connected ? 'Playlists werden geladen …' : 'Im Setup mit Spotify verbinden.')
       : 'Noch nichts geladen. Titel im Setup vom iPhone laden.';
     box.appendChild(empty);
     return;
   }
 
-  settings.recent.forEach((r, i) => {
+  items.forEach((r, i) => {
     const b = document.createElement('button');
     b.className = 'pl-item';
     b.innerHTML = '<span class="pl-num"></span>'
@@ -686,10 +721,11 @@ function renderPlaylists() {
     b.querySelector('.pl-num').textContent = String(i + 1);
     b.querySelector('.pl-name').textContent = r.name;
     // Lokale Dateien kann iOS nicht von selbst wieder öffnen — nur der Picker hilft.
-    b.querySelector('.pl-meta').textContent = r.kind === 'spotify' ? r.meta : `${r.meta} · erneut wählen`;
+    b.querySelector('.pl-meta').textContent =
+      (isSpotify() || r.kind === 'spotify') ? r.meta : `${r.meta} · erneut wählen`;
     b.addEventListener('click', () => {
       A.unlock();
-      if (r.kind === 'spotify') S.playContext(r.uri);
+      if (isSpotify() || r.kind === 'spotify') S.playContext(r.uri);
       else $('#filePick').click();
     });
     box.appendChild(b);
@@ -798,7 +834,7 @@ $('#setUnit').addEventListener('change', (e) => { set({ unit: e.target.value });
 $('#setSource').addEventListener('change', (e) => {
   A.unlock();
   set({ source: e.target.value });
-  isSpotify() ? S.startPolling() : S.stopPolling();
+  if (isSpotify()) { S.startPolling(); S.loadPlaylists().catch(() => {}); } else S.stopPolling();
   renderMusic();
 });
 
@@ -862,7 +898,7 @@ renderNav();
 renderWakePill();
 
 S.handleRedirect().then(() => {
-  if (isSpotify()) S.startPolling();
+  if (isSpotify()) { S.startPolling(); S.loadPlaylists().catch(() => {}); }
   renderMusic();
 });
 

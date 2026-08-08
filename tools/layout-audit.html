@@ -3,15 +3,31 @@
 <script>
 /* Prüft jede Geräte-/Modus-Kombination auf Inhalt, der über seine Kachel
    hinausragt. Das Dashboard darf nirgends scrollen — nur #sheet ist erlaubt. */
+/* Vierter bis siebter Wert: die Sicherheitsabstände oben/rechts/unten/links,
+   wie iOS sie meldet. Ohne sie prüft man ein Gerät, das es nicht gibt. */
 const SIZES = [
-  ['iPhone SE',        375, 667], ['iPhone SE quer',   667, 375],
-  ['iPhone 13 mini',   375, 812], ['iPhone 15',        393, 852],
-  ['iPhone 15 quer',   852, 393], ['iPhone 15 Pro Max',430, 932],
-  ['Pro Max quer',     932, 430],
+  ['iPhone SE',        375, 667, 20,  0,  0,  0],
+  ['iPhone SE quer',   667, 375,  0,  0,  0,  0],
+  ['iPhone 13 mini',   375, 812, 50,  0, 34,  0],
+  ['iPhone 15',        393, 852, 59,  0, 34,  0],
+  ['iPhone 15 quer',   852, 393,  0, 59, 21, 59],
+  ['iPhone 15 Pro Max',430, 932, 59,  0, 34,  0],
+  ['Pro Max quer',     932, 430,  0, 59, 21, 59],
 ];
 const MODES = ['default', 'music', 'plan'];
 const out = document.getElementById('out');
 const lines = [];
+
+/* Mit Inhalt prüfen, nicht mit leeren Listen: Überlauf entsteht erst, wenn
+   Treffer, Routenpunkte und Playlists tatsächlich da sind. */
+localStorage.setItem('moto.settings.v1', JSON.stringify({
+  back: 0,
+  recentDest: [{ name: 'Girona' }, { name: 'Ripoll' }, { name: 'Cadaqués' }, { name: 'La Molina' }],
+  favDest: [{ name: 'Coll de Nargó' }, { name: 'Port del Cantó' }],
+  recent: [{ kind: 'local', name: 'Highway Star', meta: '24 Titel · lokal' },
+           { kind: 'local', name: 'Machine Head', meta: '9 Titel · lokal' },
+           { kind: 'local', name: 'Burn', meta: '8 Titel · lokal' }],
+}));
 
 const frame = document.createElement('iframe');
 frame.style.cssText = 'position:absolute;left:-9999px;border:0';
@@ -29,18 +45,25 @@ function audit(doc, mode) {
   return bad;
 }
 
-function load(w, h) {
+function load(w, h, sa) {
   return new Promise((res) => {
     frame.width = w; frame.height = h;
-    frame.onload = () => setTimeout(() => res(frame.contentDocument), 250);
+    frame.onload = () => {
+      // Sicherheitsabstände simulieren — im Headless-Browser sind sie sonst 0,
+      // und genau an den Rändern bleiben Fehler dann unsichtbar.
+      const r = frame.contentDocument.documentElement.style;
+      ['--sa-top', '--sa-right', '--sa-bottom', '--sa-left']
+        .forEach((k, i) => r.setProperty(k, sa[i] + 'px'));
+      setTimeout(() => res(frame.contentDocument), 250);
+    };
     frame.src = '../index.html?cb=' + Math.random();
   });
 }
 
 (async () => {
   let fails = 0;
-  for (const [name, w, h] of SIZES) {
-    const doc = await load(w, h);
+  for (const [name, w, h, ...sa] of SIZES) {
+    const doc = await load(w, h, sa);
     for (const mode of MODES) {
       // Über die echten Bedienelemente umschalten, nicht über ein Attribut —
       // so wird der Weg geprüft, den auch der Finger nimmt.
@@ -50,10 +73,14 @@ function load(w, h) {
         doc.getElementById('planBack')?.click();
         doc.querySelector('#panelPlayer [data-open="default"]')?.click();
       }
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 250));
       const bad = audit(doc, mode);
       if (bad.length) fails++;
-      lines.push(`${bad.length ? 'FAIL' : 'ok  '}  ${name.padEnd(20)} ${String(w).padStart(4)}x${h}  ${mode.padEnd(6)} ${bad.join(' ')}`);
+      // Gegen den echten Bildschirmrand messen, nicht gegen den eingerückten
+      // Rahmen — sonst bleibt genau der verschenkte Streifen unsichtbar.
+      const grid = doc.querySelector('.grid');
+      const gap = grid ? Math.round(doc.defaultView.innerHeight - grid.getBoundingClientRect().bottom) : -1;
+      lines.push(`${bad.length ? 'FAIL' : 'ok  '}  ${name.padEnd(20)} ${String(w).padStart(4)}x${h}  ${mode.padEnd(6)} Rest unten ${String(gap).padStart(3)}px  ${bad.join(' ')}`);
     }
   }
   lines.push('', fails ? `ERGEBNIS: ${fails} Kombination(en) mit Ueberlauf` : 'ERGEBNIS: alle Kombinationen ohne Ueberlauf');

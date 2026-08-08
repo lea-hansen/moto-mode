@@ -111,7 +111,11 @@
 
   <section class="panel" id="panelMusic">
     <button class="panel-head" data-open="music">
-      <span id="musicHead">Musik</span><span class="head-hint">›</span>
+      <span id="musicHead">Musik</span>
+      <span class="head-right">
+        <span class="eq" id="eq" data-state="idle"><i></i><i></i><i></i></span>
+        <span class="head-hint">›</span>
+      </span>
     </button>
     <div class="panel-body">
       <div class="pad">
@@ -151,38 +155,43 @@
   </header>
 
   <div class="plan-body">
-    <div class="plan-search">
-      <input id="destInput" type="text" inputmode="search" enterkeyhint="search"
-             placeholder="Adresse oder Ort" autocomplete="off" autocorrect="off" spellcheck="false">
-      <button class="btn mini-go" id="btnSearch">Suchen</button>
-    </div>
+    <div class="plan-col plan-col-a">
+      <div class="plan-search">
+        <input id="destInput" type="text" inputmode="search" enterkeyhint="search"
+               placeholder="Adresse oder Ort" autocomplete="off" autocorrect="off" spellcheck="false">
+        <button class="btn mini-go" id="btnSearch">Suchen</button>
+      </div>
 
-    <div class="chip-row" id="poiRow">
       <span class="seg" id="listSeg">
         <button class="seg-item" data-list="recent">Letzte</button>
         <button class="seg-item" data-list="fav">Favoriten</button>
       </span>
-      <button class="chip" data-poi="fuel">Tankstelle</button>
-      <button class="chip" data-poi="food">Essen</button>
-      <button class="chip" data-poi="hotel">Hotel</button>
-      <button class="chip" data-poi="parking">Parken</button>
-      <button class="chip" data-poi="repair">Werkstatt</button>
+
+      <div class="stops-row" id="stopsRow"></div>
+      <div class="plan-list" id="planList"></div>
     </div>
 
-    <div class="stops-row" id="stopsRow"></div>
-    <div class="plan-list" id="planList"></div>
+    <div class="plan-col plan-col-b">
+      <div class="chip-row" id="poiRow">
+        <button class="chip" data-poi="fuel">Tankstelle</button>
+        <button class="chip" data-poi="food">Essen</button>
+        <button class="chip" data-poi="hotel">Hotel</button>
+        <button class="chip" data-poi="parking">Parken</button>
+        <button class="chip" data-poi="repair">Werkstatt</button>
+      </div>
 
-    <div class="chip-row opts">
-      <span class="chip-label">Vermeiden</span>
-      <button class="chip" data-avoid="highway">Autobahn</button>
-      <button class="chip" data-avoid="toll">Maut</button>
-      <button class="chip" data-avoid="ferry">Fähre</button>
-      <button class="chip" data-avoid="unpaved">Unbefestigt</button>
-    </div>
+      <div class="chip-row opts">
+        <span class="chip-label">Vermeiden</span>
+        <button class="chip" data-avoid="highway">Autobahn</button>
+        <button class="chip" data-avoid="toll">Maut</button>
+        <button class="chip" data-avoid="ferry">Fähre</button>
+        <button class="chip" data-avoid="unpaved">Unbefestigt</button>
+      </div>
 
-    <div class="plan-actions">
-      <button class="btn calc" id="btnCalc">ROUTE BERECHNEN</button>
-      <button class="btn go" id="btnStart" hidden>ROUTE STARTEN</button>
+      <div class="plan-actions">
+        <button class="btn calc" id="btnCalc">ROUTE BERECHNEN</button>
+        <button class="btn go" id="btnStart" hidden>ROUTE STARTEN</button>
+      </div>
     </div>
   </div>
 </section>
