@@ -200,9 +200,10 @@ function setMuted(on) {
     if (spotify.canVolume) {
       S.setVolume(on ? 0 : settings.mediaVol * A.getAutoFactor()).catch(() => {});
     } else if (on) {
-      wasPlaying = spotify.playing;
-      if (spotify.playing) S.pause();
-    } else if (wasPlaying) {
+      S.pause();
+    } else {
+      // Beim Aufheben immer starten: Wer Mute löst, will Ton — sich auf einen
+      // gemerkten Vorzustand zu verlassen, hat genau hier geklemmt.
       S.play();
     }
   } else if (on) {

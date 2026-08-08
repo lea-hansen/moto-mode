@@ -154,7 +154,12 @@ async function accessToken() {
   }
 }
 
+/* Spotify bremst bei zu vielen Anfragen mit 429 aus. Ohne Beachtung reiht
+   sich Fehler an Fehler und die Bedienung stirbt still. */
+let rateLimitUntil = 0;
+
 async function api(path, { method = 'GET', query, body } = {}) {
+  if (Date.now() < rateLimitUntil) return null;
   const token = await accessToken();
   if (!token) { spotify.connected = false; emit(); return null; }
   const url = `${API}${path}${query ? `?${new URLSearchParams(query)}` : ''}`;
@@ -162,6 +167,13 @@ async function api(path, { method = 'GET', query, body } = {}) {
   if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
 
+  if (res.status === 429) {
+    const wait = Number(res.headers.get('Retry-After') || 3);
+    rateLimitUntil = Date.now() + (wait + 1) * 1000;
+    spotify.error = `Spotify bremst — ${wait + 1} s warten`;
+    emit();
+    return null;
+  }
   if (res.status === 401) { logout(); return null; }
   if (res.status === 403) { spotify.error = 'Von Spotify abgelehnt (Premium/Gerät?)'; emit(); return null; }
   if (res.status === 404) { spotify.error = 'Kein aktives Spotify-Gerät'; emit(); return null; }
@@ -181,7 +193,11 @@ async function api(path, { method = 'GET', query, body } = {}) {
 /** Spotifys Begriff vom „aktiven Gerät" ist wackelig: Nach dem Pausieren fällt
     die iOS-App heraus. Deshalb merken wir uns die Geräte-ID und hängen sie an
     jeden Befehl — das ist verlässlicher als auf einen Zustand zu hoffen. */
-async function ensureDevice(startPlaying = false) {
+async function ensureDevice(startPlaying = false, force = false) {
+  // Die Geräteliste ändert sich selten. Sie vor jedem Tastendruck abzufragen
+  // hat den Anfrageschwall erzeugt, der Spotify zum Bremsen brachte.
+  if (!force && deviceId && Date.now() - deviceCheckedAt < 60000) return 'active';
+
   const data = await api('/me/player/devices');
   const list = data?.devices || [];
   if (!list.length) { spotify.error = 'Spotify-App auf dem iPhone öffnen'; emit(); return 'none'; }
@@ -189,6 +205,7 @@ async function ensureDevice(startPlaying = false) {
   const active = list.find((d) => d.is_active);
   const phone = active || list.find((d) => d.type === 'Smartphone') || list[0];
   deviceId = phone.id;
+  deviceCheckedAt = Date.now();
   spotify.canVolume = phone.supports_volume !== false;
   if (active) return 'active';
 
@@ -198,6 +215,17 @@ async function ensureDevice(startPlaying = false) {
 }
 
 const withDevice = (q = {}) => (deviceId ? { ...q, device_id: deviceId } : q);
+
+/** Befehl senden. Schlägt er fehl, ist meist das gemerkte Gerät weg — dann
+    einmal neu suchen und wiederholen, statt still nichts zu tun. */
+async function command(path, opts = {}) {
+  let r = await api(path, { ...opts, query: withDevice(opts.query) });
+  if (r !== null || Date.now() < rateLimitUntil) return r;
+
+  deviceId = null;
+  if (await ensureDevice(false, true) === 'none') return null;
+  return api(path, { ...opts, query: withDevice(opts.query) });
+}
 
 /* Nach einem Befehl sofort das Bild aktualisieren, statt bis zum nächsten
    Abfragezyklus zu warten — sonst wirkt die Bedienung träge. */
@@ -215,7 +243,8 @@ export async function play() {
   const state = await ensureDevice(true);
   if (state === 'none') return;
   spotify.playing = true; emit();                 // sofortige Rückmeldung
-  if (state !== 'started') await api('/me/player/play', { method: 'PUT', query: withDevice() });
+  const ok = state === 'started' || await command('/me/player/play', { method: 'PUT' }) !== null;
+  if (!ok) revert(false);          // Befehl kam nicht an — Anzeige zurücknehmen
   quickRefresh();
 }
 
@@ -223,18 +252,28 @@ export async function pause() {
   spotify.playing = false;
   quickRefresh();
   emit();
-  await api('/me/player/pause', { method: 'PUT', query: withDevice() });
+  if (await command('/me/player/pause', { method: 'PUT' }) === null) revert(true);
+}
+
+/** Optimistische Anzeige zurücknehmen. Ohne das bleibt `playing` nach einem
+    fehlgeschlagenen Befehl stehen — und `toggle` ruft danach immer dieselbe
+    Richtung auf, wodurch der Knopf tot wirkt. */
+function revert(playing) {
+  holdUntil = 0;
+  spotify.playing = playing;
+  emit();
+  setTimeout(refresh, 300);
 }
 
 export async function next() {
   if (await ensureDevice() === 'none') return;
-  await api('/me/player/next', { method: 'POST', query: withDevice() });
+  await command('/me/player/next', { method: 'POST' });
   quickRefresh();
 }
 
 export async function prev() {
   if (await ensureDevice() === 'none') return;
-  await api('/me/player/previous', { method: 'POST', query: withDevice() });
+  await command('/me/player/previous', { method: 'POST' });
   quickRefresh();
 }
 
@@ -248,8 +287,8 @@ export async function playContext(uri, shuffle = true) {
   spotify.playing = true;
   quickRefresh();
   emit();
-  if (shuffle) await api('/me/player/shuffle', { method: 'PUT', query: withDevice({ state: 'true' }) });
-  await api('/me/player/play', { method: 'PUT', query: withDevice(), body: { context_uri: uri } });
+  if (shuffle) await command('/me/player/shuffle', { method: 'PUT', query: { state: 'true' } });
+  if (await command('/me/player/play', { method: 'PUT', body: { context_uri: uri } }) === null) revert(false);
 }
 
 /** Eigene Playlists. Werden gespeichert, damit sie auch ohne Netz erscheinen. */
@@ -317,6 +356,7 @@ async function contextName(uri) {
 
 let lastContext = null;
 let deviceId = null;
+let deviceCheckedAt = 0;
 
 async function noteContext(ctx) {
   if (!ctx?.uri || ctx.uri === lastContext) return;
@@ -336,7 +376,7 @@ async function noteContext(ctx) {
 export async function setVolume(v) {
   if (spotify.canVolume === false) return false;
   const pct = Math.round(Math.max(0, Math.min(1, v)) * 100);
-  const r = await api('/me/player/volume', { method: 'PUT', query: withDevice({ volume_percent: pct }) });
+  const r = await command('/me/player/volume', { method: 'PUT', query: { volume_percent: pct } });
   if (r === null) {                      // abgelehnt — dann nicht weiter fragen
     spotify.canVolume = false;
     spotify.error = null;
@@ -363,6 +403,10 @@ export async function refresh() {
     spotify.device = data.device?.name || null;
     if (data.device) spotify.canVolume = !!data.device.supports_volume;
     noteContext(data.context);
+  } else if (data === null) {
+    // Abfrage fehlgeschlagen: lieber nichts behaupten, als eine falsche
+    // Anzeige stehen zu lassen, an der `toggle` dann falsch entscheidet.
+    holdUntil = 0;
   } else if (data?.empty) {
     spotify.playing = false;
     spotify.title = '';
@@ -375,6 +419,6 @@ let poll = null;
 export function startPolling() {
   if (poll) return;
   refresh();
-  poll = setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+  poll = setInterval(() => { if (!document.hidden) refresh(); }, 8000);
 }
 export function stopPolling() { clearInterval(poll); poll = null; }
