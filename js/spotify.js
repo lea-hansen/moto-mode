@@ -182,6 +182,7 @@ async function api(path, { method = 'GET', query, body } = {}) {
   if (res.status === 403) { spotify.error = 'Von Spotify abgelehnt (Premium/Gerät?)'; emit(); return null; }
   if (res.status === 404) { spotify.error = 'Kein aktives Spotify-Gerät'; emit(); return null; }
   if (res.status === 204) { spotify.error = null; return { empty: true }; }
+  if (res.status >= 500) { const e = new Error('server'); e.transient = true; throw e; }
   if (!res.ok) { spotify.error = `Spotify ${res.status}`; emit(); return null; }
 
   spotify.error = null;
@@ -207,13 +208,23 @@ async function ensureDevice(startPlaying = false, force = false) {
   if (!list.length) { spotify.error = 'Spotify-App auf dem iPhone öffnen'; emit(); return 'none'; }
 
   const active = list.find((d) => d.is_active);
-  const phone = active || list.find((d) => d.type === 'Smartphone') || list[0];
-  deviceId = phone.id;
+  const phone = list.find((d) => d.type === 'Smartphone');
+
+  // Niemals blind auf ein beliebiges Gerät ausweichen: Ist nur ein Rechner
+  // angemeldet, landet die Musik dort statt am Lenker. Genau das ist passiert.
+  const target = active || phone;
+  if (!target) {
+    spotify.error = `Kein iPhone angemeldet (nur ${list.map((d) => d.name).join(', ')})`;
+    emit();
+    return 'none';
+  }
+
+  deviceId = target.id;
   deviceCheckedAt = Date.now();
-  spotify.canVolume = phone.supports_volume !== false;
+  spotify.canVolume = target.supports_volume !== false;
   if (active) return 'active';
 
-  await api('/me/player', { method: 'PUT', body: { device_ids: [phone.id], play: startPlaying } });
+  await api('/me/player', { method: 'PUT', body: { device_ids: [target.id], play: startPlaying } });
   await new Promise((r) => setTimeout(r, 500));
   return startPlaying ? 'started' : 'transferred';
 }
@@ -223,7 +234,11 @@ const withDevice = (q = {}) => (deviceId ? { ...q, device_id: deviceId } : q);
 /** Befehl senden. Schlägt er fehl, ist meist das gemerkte Gerät weg — dann
     einmal neu suchen und wiederholen, statt still nichts zu tun. */
 async function command(path, opts = {}) {
-  let r = await api(path, { ...opts, query: withDevice(opts.query) });
+  let r = await api(path, { ...opts, query: withDevice(opts.query) }).catch(async (e) => {
+    if (!e.transient) return null;
+    await new Promise((res) => setTimeout(res, 600));   // 502 war vorübergehend
+    return api(path, { ...opts, query: withDevice(opts.query) }).catch(() => null);
+  });
   if (r !== null || Date.now() < rateLimitUntil) return r;
 
   deviceId = null;
@@ -248,25 +263,26 @@ export async function play() {
   if (state === 'none') return;
   spotify.playing = true; emit();                 // sofortige Rückmeldung
   const ok = state === 'started' || await command('/me/player/play', { method: 'PUT' }) !== null;
-  if (!ok) revert(false);          // Befehl kam nicht an — Anzeige zurücknehmen
-  quickRefresh();
+  if (ok) quickRefresh(); else await truth();
 }
 
 export async function pause() {
   spotify.playing = false;
   quickRefresh();
   emit();
-  if (await command('/me/player/pause', { method: 'PUT' }) === null) revert(true);
+  if (await command('/me/player/pause', { method: 'PUT' }) === null) await truth();
 }
 
-/** Optimistische Anzeige zurücknehmen. Ohne das bleibt `playing` nach einem
-    fehlgeschlagenen Befehl stehen — und `toggle` ruft danach immer dieselbe
-    Richtung auf, wodurch der Knopf tot wirkt. */
-function revert(playing) {
+/** Nach einem fehlgeschlagenen Befehl den echten Zustand holen.
+
+    Vorher wurde hier das Gegenteil der optimistischen Annahme gesetzt. Das war
+    falsch und selbstverstärkend: Ist bereits pausiert, lehnt Spotify ein
+    weiteres Pause mit „Restriction violated“ ab — worauf die Anzeige wieder auf
+    „läuft“ sprang, der nächste Tipp erneut Pause schickte und Play nie an die
+    Reihe kam. Der Server weiß es besser als jede Annahme. */
+async function truth() {
   holdUntil = 0;
-  spotify.playing = playing;
-  emit();
-  setTimeout(refresh, 300);
+  await refresh();
 }
 
 export async function next() {
@@ -327,6 +343,7 @@ export async function playContext(uri, shuffle = true) {
     }
   }
 
+  await truth();
   openInApp(uri);                            // stumm scheitern ist keine Option
   return false;
 }
@@ -523,7 +540,7 @@ export async function diagnose() {
   L.push(`Play senden: HTTP ${play.status}${play.status >= 400 ? ` · ${play.data?.error?.message || ''}` : ' · angenommen'}`);
 
   L.push('');
-  L.push('403 = abgelehnt (meist kein Premium) · 404 = kein aktives Gerät');
+  L.push('403 = abgelehnt (auch: Befehl passt nicht zum Zustand) · 404 = kein Gerät');
   L.push('401 = Anmeldung abgelaufen · 429 = zu viele Anfragen');
   return L.join('\n');
 }
