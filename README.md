@@ -348,6 +348,13 @@ Spotifys Server, nicht vom Gerät.
 
 Play/Pause, Titelwechsel, Playlistwahl und Titelanzeige funktionieren damit.
 
+**Geht etwas nicht, zuerst *Setup → Spotify → Verbindung prüfen*.** Die Prüfung
+spricht direkt mit Spotify und zeigt die echten Antworten: Kontoart, gefundene
+Geräte, und was auf einen Pause- und einen Play-Befehl zurückkommt. Die
+Statuscodes sagen, wo es klemmt — `403` heißt abgelehnt (meist fehlendes
+Premium), `404` kein aktives Gerät, `401` abgelaufene Anmeldung, `429` zu viele
+Anfragen.
+
 **Die Spotify-App muss laufen oder kürzlich gelaufen sein.** Sie meldet sich nur
 dann als Connect-Gerät, und ohne Gerät kann keine Fernsteuerung etwas starten —
 auch das Antippen einer Playlist nicht. Passiert das, öffnet MotoMode Spotify

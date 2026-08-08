@@ -10,7 +10,7 @@ import { settings, set, pushRecent } from './store.js';
 const AUTH = 'https://accounts.spotify.com/authorize';
 const TOKEN = 'https://accounts.spotify.com/api/token';
 const API = 'https://api.spotify.com/v1';
-const SCOPES = 'user-read-playback-state user-modify-playback-state '
+const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-private '
   + 'playlist-read-private playlist-read-collaborative user-read-recently-played';
 const TK = 'moto.spotify.token';
 const VK = 'moto.spotify.verifier';
@@ -73,6 +73,7 @@ function saveToken(data) {
     access: data.access_token,
     refresh: data.refresh_token || readToken()?.refresh,
     expires: Date.now() + (data.expires_in - 60) * 1000,
+    scope: data.scope || readToken()?.scope || '',
   };
   localStorage.setItem(TK, JSON.stringify(token));
   return token;
@@ -168,7 +169,10 @@ async function api(path, { method = 'GET', query, body } = {}) {
   const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
 
   if (res.status === 429) {
-    const wait = Number(res.headers.get('Retry-After') || 3);
+    // Spotify nennt hier gelegentlich sehr lange Fristen. Ungedeckelt legt das
+    // die Bedienung für Stunden still, ohne dass man den Grund sieht.
+    const asked = Number(res.headers.get('Retry-After') || 3);
+    const wait = Math.min(asked, 30);
     rateLimitUntil = Date.now() + (wait + 1) * 1000;
     spotify.error = `Spotify bremst — ${wait + 1} s warten`;
     emit();
@@ -457,6 +461,71 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) deviceCheckedAt = 0;
   });
+}
+
+/* ── Diagnose ──────────────────────────────────────────────────────────────
+   Am Gerät ausführbar, weil sich nur dort zeigt, was Spotify wirklich
+   antwortet. Bewusst an `api()` vorbei: Diese Aufrufe sollen auch dann
+   durchgehen, wenn die Sperrfrist gerade greift, und den echten Statuscode
+   melden statt `null`. */
+
+export async function diagnose() {
+  const L = [];
+  const t = readToken();
+  L.push(t ? `Anmeldung: vorhanden, gültig noch ${Math.max(0, Math.round((t.expires - Date.now()) / 1000))} s`
+            : 'Anmeldung: FEHLT — im Setup verbinden');
+  L.push(`Berechtigungen: ${t?.scope || 'unbekannt (vor der Umstellung erteilt → neu verbinden)'}`);
+  if (Date.now() < rateLimitUntil) {
+    L.push(`GEBREMST: noch ${Math.round((rateLimitUntil - Date.now()) / 1000)} s gesperrt`);
+  }
+  if (!t) return L.join('\n');
+
+  const token = await accessToken();
+  if (!token) return [...L, 'Token konnte nicht erneuert werden — neu verbinden'].join('\n');
+
+  const call = async (method, path, body) => {
+    try {
+      const res = await fetch(`${API}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const txt = await res.text();
+      return { status: res.status, data: txt ? JSON.parse(txt) : null };
+    } catch (e) {
+      return { status: 0, data: { error: e.message } };
+    }
+  };
+
+  const me = await call('GET', '/me');
+  L.push(`Konto: HTTP ${me.status}${me.data?.product ? ` · ${me.data.product}` : ''}`);
+  if (me.data?.product && me.data.product !== 'premium') {
+    L.push('  → Ohne Premium lehnt Spotify jede Fernsteuerung ab. Das ist die Ursache.');
+  }
+
+  const dev = await call('GET', '/me/player/devices');
+  const list = dev.data?.devices || [];
+  L.push(`Geräte: HTTP ${dev.status} · ${list.length} gefunden`);
+  list.forEach((d) => L.push(`  ${d.is_active ? '▶' : '·'} ${d.name} (${d.type}) Lautstärke ${d.supports_volume ? 'ja' : 'nein'}`));
+  if (!list.length) L.push('  → Spotify-App auf dem iPhone öffnen und einen Titel starten.');
+
+  const target = list.find((d) => d.is_active) || list[0];
+  const q = target ? `?device_id=${target.id}` : '';
+
+  const st = await call('GET', '/me/player');
+  L.push(`Zustand: HTTP ${st.status}${st.status === 200 ? ` · ${st.data?.is_playing ? 'läuft' : 'pausiert'}` : ''}`);
+
+  const pause = await call('PUT', `/me/player/pause${q}`);
+  L.push(`Pause senden: HTTP ${pause.status}${pause.status >= 400 ? ` · ${pause.data?.error?.message || ''}` : ' · angenommen'}`);
+
+  await new Promise((r) => setTimeout(r, 600));
+  const play = await call('PUT', `/me/player/play${q}`);
+  L.push(`Play senden: HTTP ${play.status}${play.status >= 400 ? ` · ${play.data?.error?.message || ''}` : ' · angenommen'}`);
+
+  L.push('');
+  L.push('403 = abgelehnt (meist kein Premium) · 404 = kein aktives Gerät');
+  L.push('401 = Anmeldung abgelaufen · 429 = zu viele Anfragen');
+  return L.join('\n');
 }
 
 let poll = null;

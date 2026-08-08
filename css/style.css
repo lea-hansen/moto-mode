@@ -364,6 +364,12 @@ b,i{font-style:normal}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:30px;height:30px;border-radius:15px;background:#fff;transition:transform .18s}
 .sw:checked{background:var(--green)}
 .sw:checked::after{transform:translateX(26px)}
+.diag{
+  margin:0;padding:14px 16px;background:var(--tile-2);border-top:1px solid var(--sep);
+  font:12px/1.55 ui-monospace,Menlo,monospace;color:var(--fg-2);
+  white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text;
+}
+.diag[hidden]{display:none}
 .foot-note{margin-top:26px;font-size:12px;font-weight:500;line-height:1.45;color:var(--fg-3)}
 
 /* Regler im Setup */

@@ -886,6 +886,19 @@ $('#btnCopyRedirect').addEventListener('click', async () => {
 
 $('#btnSpotifyConnect').addEventListener('click', () => S.connect());
 $('#setSpotifyId').addEventListener('change', (e) => set({ spotifyId: e.target.value.trim() }));
+$('#btnSpotifyCheck').addEventListener('click', async () => {
+  const box = $('#spotifyDiag');
+  box.hidden = false;
+  box.textContent = 'prüfe …';
+  $('#btnSpotifyCheck').textContent = 'Prüfe …';
+  try {
+    box.textContent = await S.diagnose();
+  } catch (e) {
+    box.textContent = `Prüfung fehlgeschlagen: ${e.message}`;
+  }
+  $('#btnSpotifyCheck').textContent = 'Verbindung prüfen';
+});
+
 $('#btnSpotifyLogout').addEventListener('click', () => { S.logout(); renderMusic(); });
 $('#btnLimitCache').addEventListener('click', () => { clearCache(); $('#limitCacheCount').textContent = '0'; });
 $('#btnTripReset').addEventListener('click', () => { resetTrip(); });
