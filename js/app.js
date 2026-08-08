@@ -15,6 +15,7 @@ import { nav, onNav } from './nav.js';
 import * as M from './map.js';
 import * as POI from './poi.js';
 import { phrases, LANGS } from './phrases.js';
+import { isDaylight, sunTimes } from './sun.js';
 import * as A from './audio.js';
 import { audio, onAudio } from './audio.js';
 import * as S from './spotify.js';
@@ -62,6 +63,33 @@ document.addEventListener('visibilitychange', () => {
   acquireWakeLock();
   if (settings.source === 'spotify') S.refresh();
 });
+
+/* ── Erscheinungsbild ──────────────────────────────────────────────────────
+   Bei „automatisch“ entscheidet der Sonnenstand an der aktuellen Position —
+   ohne Netz gerechnet, damit der Wechsel auch im Funkloch stattfindet. */
+
+let themeNow = null;
+
+function wantedTheme() {
+  if (settings.theme !== 'auto') return settings.theme;
+  return isDaylight(new Date(), gps.lat, gps.lon) ? 'light' : 'dark';
+}
+
+function applyTheme(force) {
+  const next = wantedTheme();
+  if (!force && next === themeNow) return;
+  themeNow = next;
+
+  document.documentElement.dataset.theme = next;
+  document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', next === 'light' ? '#F2F2F7' : '#000000');
+
+  const style = next === 'light' ? settings.mapStyleDay : settings.mapStyleNight;
+  if (mapStarted) M.setStyle(style);
+}
+
+/** Zeit läuft weiter, auch wenn die Position steht — einmal je Minute prüfen. */
+setInterval(() => applyTheme(false), 60000);
 
 /* ── Statusleiste — zeigt nur, was nicht in Ordnung ist ────────────────── */
 
@@ -266,7 +294,7 @@ function renderTelemetry() {
   $('#speedChip').textContent = gps.fix ? `${Math.round(gps.kmh)} ${unit}` : `– ${unit}`;
   $('#pillGps').hidden = gps.fix;
 
-  if (gps.fix) updatePosition(gps.lat, gps.lon, gps.heading);
+  if (gps.fix) { updatePosition(gps.lat, gps.lon, gps.heading); applyTheme(false); }
 
   // Warnung gegen das gültige Limit — mit Hysterese, Ansage höchstens alle 20 s.
   const cap = limit.free ? null : limit.kmh;
@@ -369,7 +397,8 @@ let mapStarted = false;
 function ensureMap() {
   if (mapStarted) return;
   mapStarted = true;
-  M.initMap($('#map'), settings.mapStyle).then(() => M.resize());
+  const style = wantedTheme() === 'light' ? settings.mapStyleDay : settings.mapStyleNight;
+  M.initMap($('#map'), style).then(() => M.resize());
 }
 
 let drawnRoutes = null;
@@ -730,7 +759,9 @@ function renderSettings() {
   $('#setUnit').value = settings.unit;
   $('#setSource').value = settings.source;
   $('#setSpotifyId').value = settings.spotifyId;
-  $('#setMapStyle').value = settings.mapStyle;
+  $('#setMapStyleDay').value = settings.mapStyleDay;
+  $('#setMapStyleNight').value = settings.mapStyleNight;
+  $('#setTheme').value = settings.theme;
   $('#setNavLang').value = settings.navLang;
   $('#setCountry').value = settings.country;
   $('#destInput').value = settings.dest;
@@ -759,7 +790,9 @@ Object.entries(CHECKS).forEach(([id, key]) => {
 
 $('#setNavLang').addEventListener('change', (e) => { set({ navLang: e.target.value }); renderLimit(); });
 $('#setCountry').addEventListener('change', (e) => set({ country: e.target.value }));
-$('#setMapStyle').addEventListener('change', (e) => { set({ mapStyle: e.target.value }); M.setStyle(e.target.value); });
+$('#setTheme').addEventListener('change', (e) => { set({ theme: e.target.value }); applyTheme(true); });
+$('#setMapStyleDay').addEventListener('change', (e) => { set({ mapStyleDay: e.target.value }); applyTheme(true); });
+$('#setMapStyleNight').addEventListener('change', (e) => { set({ mapStyleNight: e.target.value }); applyTheme(true); });
 $('#setUnit').addEventListener('change', (e) => { set({ unit: e.target.value }); renderTelemetry(); });
 
 $('#setSource').addEventListener('change', (e) => {
@@ -812,14 +845,16 @@ Object.entries(LANGS).forEach(([id, label]) => {
   langSel.appendChild(o);
 });
 
-const styleSel = $('#setMapStyle');
-Object.entries(M.STYLES).forEach(([id, def]) => {
-  const o = document.createElement('option');
-  o.value = id;
-  o.textContent = def.label;
-  styleSel.appendChild(o);
+['#setMapStyleDay', '#setMapStyleNight'].forEach((sel) => {
+  Object.entries(M.STYLES).forEach(([id, def]) => {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = def.label;
+    $(sel).appendChild(o);
+  });
 });
 
+applyTheme(true);
 renderSettings();
 renderMusic();
 renderTelemetry();

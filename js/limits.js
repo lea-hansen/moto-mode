@@ -27,6 +27,7 @@ export const limit = {
   kmh: null,        // Zahl in km/h, oder null wenn unbekannt
   free: false,      // unbegrenzt (deutsche Autobahn ohne Beschilderung)
   road: '',
+  country: null,    // ISO-Kürzel der Position, z. B. ES, FR, AD
   area: null,       // Innerorts | Außerorts | Autobahn
   source: '',       // Schild | Zone | Annahme
   cached: false,
@@ -80,6 +81,8 @@ const ZONES = {
   'it:urban': { kmh: 50 },      'it:rural': { kmh: 90 },      'it:motorway': { kmh: 130 },
   'fr:urban': { kmh: 50 },      'fr:rural': { kmh: 80 },      'fr:motorway': { kmh: 130 },
   'nl:urban': { kmh: 50 },      'nl:rural': { kmh: 80 },      'nl:motorway': { kmh: 100 },
+  'ad:urban': { kmh: 50 },      'ad:rural': { kmh: 90 },
+  'pt:urban': { kmh: 50 },      'pt:rural': { kmh: 90 },      'pt:motorway': { kmh: 120 },
 };
 
 /** Vorgaben je Land — nur für eindeutige Straßentypen. Bei primary/secondary
@@ -93,12 +96,54 @@ const BY_TYPE = {
     living_street: { kmh: 20 },
     residential: { kmh: 30 },        // seit 2021: 30 auf einspurigen Ortsstraßen
   },
+  fr: {
+    motorway: { kmh: 130 }, motorway_link: { kmh: 130 },
+    trunk: { kmh: 110 }, trunk_link: { kmh: 110 },
+    living_street: { kmh: 20 },
+    residential: { kmh: 50 },
+  },
+  ad: {
+    trunk: { kmh: 90 }, trunk_link: { kmh: 90 },
+    living_street: { kmh: 20 },
+    residential: { kmh: 50 },
+  },
+  pt: {
+    motorway: { kmh: 120 }, motorway_link: { kmh: 120 },
+    trunk: { kmh: 100 }, trunk_link: { kmh: 100 },
+    living_street: { kmh: 20 },
+    residential: { kmh: 50 },
+  },
+  it: {
+    motorway: { kmh: 130 }, motorway_link: { kmh: 130 },
+    trunk: { kmh: 110 }, trunk_link: { kmh: 110 },
+    living_street: { kmh: 20 },
+    residential: { kmh: 50 },
+  },
   de: {
     motorway: { free: true }, motorway_link: { free: true },
     living_street: { kmh: 7 },
     residential: { kmh: 50 },
   },
 };
+
+/* Zuletzt erkanntes Land — überbrückt Funklöcher und den Kaltstart. */
+let country = null;
+try { country = localStorage.getItem('moto.country') || null; } catch {}
+
+export function currentCountry() { return country; }
+
+function setCountry(iso) {
+  if (!iso || iso === country) return;
+  country = iso;
+  try { localStorage.setItem('moto.country', iso); } catch {}
+}
+
+/** Welche Vorgabetabelle gilt? Einstellung schlägt Erkennung, damit man sie
+    notfalls von Hand setzen kann. */
+function typeTable() {
+  const wanted = settings.country === 'auto' ? (country || 'es') : settings.country;
+  return BY_TYPE[String(wanted).toLowerCase()] || BY_TYPE.es;
+}
 
 function parseMaxspeed(v) {
   if (!v) return null;
@@ -140,8 +185,7 @@ function resolve(tags) {
   const zone = String(tags['maxspeed:type'] || tags['zone:maxspeed'] || '').toLowerCase();
   if (ZONES[zone]) return { ...ZONES[zone], source: 'Zone' };
 
-  const table = BY_TYPE[settings.country] || BY_TYPE.es;
-  const byType = table[tags.highway];
+  const byType = typeTable()[tags.highway];
   if (byType) return { ...byType, source: 'Annahme' };
 
   return null;
@@ -213,16 +257,24 @@ async function query(lat, lon, heading) {
   limit.state = 'loading';
   emit();
 
+  // Straße und Land in einer Abfrage — Overpass erlaubt ohnehin nur zwei
+  // gleichzeitige Anfragen, also nicht zwei daraus machen.
   const ql = `[out:json][timeout:10];`
     + `way(around:${RADIUS},${lat},${lon})["highway"~"^(${ROAD_TYPES})$"];`
-    + `out tags geom 40;`;
+    + `out tags geom 40;`
+    + `is_in(${lat},${lon})->.a;area.a["ISO3166-1"];out tags 1;`;
 
   try {
     const data = await ask(ql, 12000);
-    const hit = pickWay(data.elements || [], lat, lon, heading);
+    const elements = data.elements || [];
+
+    const area = elements.find((e) => e.type === 'area' && e.tags?.['ISO3166-1']);
+    if (area) setCountry(area.tags['ISO3166-1'].toLowerCase());
+
+    const hit = pickWay(elements.filter((e) => e.type === 'way'), lat, lon, heading);
 
     if (!hit) {
-      apply({ kmh: null, free: false, road: '', area: null, source: '' }, false);
+      apply({ kmh: null, free: false, road: '', area: null, source: '', country }, false);
     } else {
       const tags = hit.way.tags || {};
       const resolved = resolve(tags) || {};
@@ -232,6 +284,7 @@ async function query(lat, lon, heading) {
         road: tags.name || tags.ref || '',
         area: areaOf(tags, resolved.kmh ?? null),
         source: resolved.source || '',
+        country,
         t: Date.now(),
       };
       cache[cellKey(lat, lon)] = entry;
@@ -254,6 +307,7 @@ function apply(entry, fromCache) {
   limit.free = !!entry.free;
   limit.road = entry.road || '';
   limit.area = entry.area || null;
+  limit.country = entry.country || country;
   limit.source = entry.source || '';
   limit.cached = fromCache;
   limit.updated = Date.now();

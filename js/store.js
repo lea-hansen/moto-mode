@@ -34,9 +34,11 @@ const DEFAULTS = {
   avoid: { highway: false, toll: false, ferry: false, unpaved: false },
   navVoice: true,
   navLang: 'de-DE',     // de-DE | ca-ES | es-ES
-  country: 'es',        // bestimmt die Vorgabewerte für Tempolimits
+  country: 'auto',      // auto = nach GPS-Position; sonst ISO-Kürzel
   courseUp: true,
-  mapStyle: 'positron',
+  theme: 'auto',        // auto (nach Sonnenstand) | light | dark
+  mapStyleDay: 'bright',
+  mapStyleNight: 'fiord',
   valhalla: 'https://valhalla1.openstreetmap.de/route',
   photon: 'https://photon.komoot.io/api/',
 

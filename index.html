@@ -201,14 +201,25 @@
       <label class="row"><span>Ansagesprache</span><select id="setNavLang"></select></label>
       <label class="row"><span>Land für Tempo-Vorgaben</span>
         <select id="setCountry">
+          <option value="auto">Automatisch nach Standort</option>
           <option value="es">Spanien</option>
+          <option value="fr">Frankreich</option>
+          <option value="ad">Andorra</option>
+          <option value="pt">Portugal</option>
+          <option value="it">Italien</option>
           <option value="de">Deutschland</option>
         </select>
       </label>
       <label class="row"><span>Karte in Fahrtrichtung</span><input type="checkbox" class="sw" id="setCourseUp"></label>
-      <label class="row"><span>Kartenstil</span>
-        <select id="setMapStyle"></select>
+      <label class="row"><span>Erscheinungsbild</span>
+        <select id="setTheme">
+          <option value="auto">Automatisch (Sonnenstand)</option>
+          <option value="light">Immer hell</option>
+          <option value="dark">Immer dunkel</option>
+        </select>
       </label>
+      <label class="row"><span>Kartenstil bei Tag</span><select id="setMapStyleDay"></select></label>
+      <label class="row"><span>Kartenstil bei Nacht</span><select id="setMapStyleNight"></select></label>
     </div>
 
     <h2>Musikquelle</h2>

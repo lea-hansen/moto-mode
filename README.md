@@ -11,6 +11,7 @@ js/gps.js             GPS: Tempo, Zonenerkennung, Tourstatistik
 js/limits.js          Tempolimit aus OpenStreetMap (Overpass) mit Offline-Cache
 js/nav.js             Abbiegenavigation: Route, Alternativen, Führung, Ansagen
 js/phrases.js         App-Ansagen auf Deutsch, Katalanisch und Spanisch
+js/sun.js             Sonnenauf- und -untergang, offline gerechnet
 js/poi.js             Umkreissuche: Tankstelle, Essen, Hotel, Parken, Werkstatt
 js/overpass.js        gemeinsame Warteschlange für alle Overpass-Abfragen
 js/map.js             Kartendarstellung auf MapLibre GL
@@ -220,9 +221,27 @@ als es zunächst scheint:
 | Carretera convencional (`ES:rural`) | 90 | 100 |
 | Spielstraße | 20 | 7 |
 
-Der Vorgabewert steht im Setup unter *Land für Tempo-Vorgaben*. Er greift nur,
-wenn in OSM kein `maxspeed` steht — in Katalonien ist das selten, dort ist
-direkt getaggt (an der AP-7 und am Passeig de Gràcia geprüft).
+**Das Land kommt aus der Position, nicht aus einer Einstellung.** Beim Abruf des
+Tempolimits fragt dieselbe Overpass-Anfrage über `is_in` das Landeskürzel mit ab
+— geprüft an Girona (ES), Perpignan (FR) und Andorra la Vella (AD). Wer über die
+Pyrenäen fährt, bekommt ab der Grenze französische Vorgaben. Das zuletzt erkannte
+Land bleibt gespeichert und überbrückt Funklöcher. Im Setup lässt es sich fest
+vorgeben, Vorgabe ist *Automatisch nach Standort*.
+
+Der Vorgabewert greift ohnehin nur, wenn in OSM kein `maxspeed` steht — in
+Katalonien ist das selten, dort ist direkt getaggt (an der AP-7 und am Passeig de
+Gràcia geprüft).
+
+## Hell und dunkel
+
+Bei *Automatisch* wechselt die App zum Sonnenuntergang: tagsüber helle Oberfläche
+mit dem Kartenstil **Bright**, nachts dunkle Oberfläche mit **Fiord**. Beide
+Stile sind im Setup frei wählbar, ebenso eine feste Einstellung *immer hell* oder
+*immer dunkel*.
+
+Die Sonnenzeiten rechnet [js/sun.js](js/sun.js) selbst — kein Dienst, kein Netz.
+Gegen veröffentlichte Werte geprüft: Barcelona 06:54/21:02 am 8. August und
+08:15/17:25 am 21. Dezember, Berlin 04:44/21:34 zur Sonnenwende.
 
 **Die Ortslage wird anders bestimmt als in Deutschland.** Das Feld
 `maxspeed:type`, aus dem sich Innerorts/Außerorts sauber ableiten ließe, fehlt
