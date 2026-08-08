@@ -810,6 +810,11 @@ function renderSettings() {
   $('#setCountry').value = settings.country;
   $('#destInput').value = settings.dest;
   $('#limitCacheCount').textContent = String(cacheSize());
+  // Ob iOS fremden Ton für uns absenkt, hängt an der Audio-Sitzungs-
+  // Schnittstelle. Ehrlich anzeigen statt stillschweigend nichts zu tun.
+  $('#duckOthers').textContent = A.hasAudioSession()
+    ? 'ja, während Ansagen'
+    : 'nicht möglich auf diesem Gerät';
   app.dataset.dim = settings.dim ? '1' : '0';
 }
 

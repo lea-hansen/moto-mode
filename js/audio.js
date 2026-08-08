@@ -24,6 +24,30 @@ const listeners = new Set();
 export function onAudio(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function emit() { for (const fn of listeners) fn(audio); }
 
+/* ── Audio-Sitzung ─────────────────────────────────────────────────────────
+   iOS entscheidet anhand der Sitzungsart, wie sich unser Ton zu dem anderer
+   Apps verhält. `transient` heißt „kurze Einblendung, andere bitte absenken“ —
+   damit senkt iOS selbst Spotify ab, solange eine Ansage läuft. Das ist der
+   einzige Weg, an fremden Ton heranzukommen; ein Regler wird daraus nicht,
+   denn wie stark abgesenkt wird, bestimmt das System.
+
+   Die Schnittstelle gibt es erst ab neueren Safari-Fassungen, deshalb überall
+   abgesichert. Fehlt sie, bleibt es beim bisherigen Verhalten. */
+
+function setSession(type) {
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = type;
+  } catch { /* ältere Fassung ohne diese Schnittstelle */ }
+}
+
+export function hasAudioSession() { return !!navigator.audioSession; }
+
+/** Grundzustand: Spielt die App selbst, will sie den Ton führen. Sonst mischt
+    sie sich unter, damit Spotify nicht unterbrochen wird. */
+function baseSession() {
+  return audio.playing ? 'playback' : 'ambient';
+}
+
 /* ── Graph ─────────────────────────────────────────────────────────────── */
 
 /** Muss aus einer Nutzergeste heraus aufgerufen werden (iOS-Autoplay-Policy). */
@@ -43,6 +67,7 @@ export function unlock() {
     }
   }
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  setSession(baseSession());
   // SpeechSynthesis auf iOS ebenfalls einmalig freischalten.
   if ('speechSynthesis' in window && !unlock.spoke) {
     unlock.spoke = true;
@@ -118,12 +143,14 @@ function select(i, autoplay = true) {
 export function play() {
   if (!audio.tracks.length) return;
   unlock();
+  setSession('playback');
   el.play().then(() => { audio.playing = true; emit(); }).catch(() => {});
 }
 
 export function pause() {
   el.pause();
   audio.playing = false;
+  setSession('ambient');       // Spotify soll danach wieder ungestört laufen
   emit();
 }
 
@@ -159,8 +186,19 @@ export function speak(text) {
   duckTimer = setTimeout(duckOff, 8000);
 }
 
-function duckOn() { ducking = true; applyGain(true); }
-function duckOff() { clearTimeout(duckTimer); ducking = false; applyGain(); }
+/* Eigene Musik über den Gain-Node absenken, fremde über die Sitzungsart. */
+function duckOn() {
+  ducking = true;
+  applyGain(true);
+  setSession('transient');
+}
+
+function duckOff() {
+  clearTimeout(duckTimer);
+  ducking = false;
+  applyGain();
+  setSession(baseSession());
+}
 
 /* ── Sperrbildschirm / AirPods-Tasten ──────────────────────────────────── */
 

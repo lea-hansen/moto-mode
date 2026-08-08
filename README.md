@@ -305,9 +305,17 @@ Vier Dinge sind Plattformgrenzen, keine Auslassungen. Sie bestimmen den Aufbau:
    nativer Karte gibt es auf dem iPhone nicht; die Route-Ansicht zeigt deshalb
    Fahrdaten statt einer Karte. Eine Abbiegenavigation kann sie nicht liefern —
    dafür fehlt einer Web-App jeder Zugang zur laufenden Navigation.
-3. **Fremd-Apps sind nicht steuerbar.** Die Navi-Ansagen von Apple Karten kann
-   keine Web-App regeln. Der Ansage-Regler steuert die Sprachausgabe *dieser*
-   App (Limitwarnung, Zonenwechsel, Test-Ansage) samt Musikabsenkung.
+3. **Fremd-Apps sind nicht steuerbar — mit einer Ausnahme.** Der Ansage-Regler
+   und die Absenkung wirken auf einen Web-Audio-Gain-Node, also nur auf Musik,
+   die *diese App selbst* abspielt. Läuft Spotify, hängt an diesem Node kein
+   Signal.
+
+   Die Ausnahme: Über `navigator.audioSession.type = 'transient'` sagt die App
+   dem System, dass gleich eine kurze Einblendung kommt — iOS senkt daraufhin
+   **fremden Ton selbst ab**, auch den von Spotify. Das nutzt die App während
+   jeder Ansage. Ein Lautstärkeregler wird daraus nicht: Wie stark abgesenkt
+   wird, bestimmt das System, nicht die App. Ob dein Gerät das kann, steht im
+   Setup unter *Fremde Musik absenken*.
 4. **Tempolimits gibt iOS nicht heraus.** Weder CarPlay- noch Karten-Daten sind
    für Web-Apps zugänglich; deshalb OpenStreetMap und deshalb der Netzbedarf.
 
