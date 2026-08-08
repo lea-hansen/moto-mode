@@ -25,16 +25,17 @@ export function onAudio(fn) { listeners.add(fn); return () => listeners.delete(f
 function emit() { for (const fn of listeners) fn(audio); }
 
 /* ── Audio-Sitzung ─────────────────────────────────────────────────────────
-   iOS entscheidet anhand der Sitzungsart, wie sich unser Ton zu dem anderer
-   Apps verhält. `transient` heißt „kurze Einblendung, andere bitte absenken“ —
-   damit senkt iOS selbst Spotify ab, solange eine Ansage läuft. Das ist der
-   einzige Weg, an fremden Ton heranzukommen; ein Regler wird daraus nicht,
-   denn wie stark abgesenkt wird, bestimmt das System.
+   iOS senkt fremden Ton von sich aus ab, wenn eine Webseite kurz etwas
+   abspielt. Genau davon lebt die Absenkung bei Ansagen, auch bei Spotify.
 
-   Die Schnittstelle gibt es erst ab neueren Safari-Fassungen, deshalb überall
-   abgesichert. Fehlt sie, bleibt es beim bisherigen Verhalten. */
+   Wer hier eingreift, kann das kaputtmachen: `ambient` heißt ausdrücklich
+   „andere nicht absenken“ — damit war die Absenkung weg. Deshalb wird die
+   Sitzungsart standardmäßig gar nicht angefasst, das Standardverhalten ist
+   das bessere. Nur wer den Schalter im Setup umlegt, bekommt zusätzlich den
+   ausdrücklichen Hinweis `transient` während einer Ansage. */
 
 function setSession(type) {
+  if (!settings.duckHint) return;             // aus: Systemverhalten unberührt
   try {
     if (navigator.audioSession) navigator.audioSession.type = type;
   } catch { /* ältere Fassung ohne diese Schnittstelle */ }
@@ -42,10 +43,9 @@ function setSession(type) {
 
 export function hasAudioSession() { return !!navigator.audioSession; }
 
-/** Grundzustand: Spielt die App selbst, will sie den Ton führen. Sonst mischt
-    sie sich unter, damit Spotify nicht unterbrochen wird. */
+/** Zurück auf die Vorgabe des Browsers — nicht auf `ambient`. */
 function baseSession() {
-  return audio.playing ? 'playback' : 'ambient';
+  return audio.playing ? 'playback' : 'auto';
 }
 
 /* ── Graph ─────────────────────────────────────────────────────────────── */
@@ -150,7 +150,7 @@ export function play() {
 export function pause() {
   el.pause();
   audio.playing = false;
-  setSession('ambient');       // Spotify soll danach wieder ungestört laufen
+  setSession('auto');          // zurück zur Vorgabe, nicht auf 'ambient'
   emit();
 }
 

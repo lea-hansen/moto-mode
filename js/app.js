@@ -796,7 +796,8 @@ $('#sheetClose').addEventListener('click', () => openSheet(false));
 
 const NUMS = { setT1: 't1', setT2: 't2', setG1: 'g1', setG2: 'g2', setG3: 'g3', setTol: 'tol', setBack: 'back' };
 const CHECKS = { setWake: 'wake', setDim: 'dim', setSmart: 'smart', setTierSpeak: 'tierSpeak',
-                 setWarn: 'warn', setLimits: 'limits', setNavVoice: 'navVoice', setCourseUp: 'courseUp' };
+                 setWarn: 'warn', setLimits: 'limits', setNavVoice: 'navVoice',
+                 setCourseUp: 'courseUp', setDuckHint: 'duckHint' };
 
 function renderSettings() {
   Object.entries(NUMS).forEach(([id, key]) => { $(`#${id}`).value = settings[key]; });
@@ -813,9 +814,11 @@ function renderSettings() {
   $('#limitCacheCount').textContent = String(cacheSize());
   // Ob iOS fremden Ton für uns absenkt, hängt an der Audio-Sitzungs-
   // Schnittstelle. Ehrlich anzeigen statt stillschweigend nichts zu tun.
+  // iOS senkt fremden Ton normalerweise von selbst ab. Der Hinweis ist ein
+  // Versuch, das zu verstärken — er kann es aber auch verschlechtern.
   $('#duckOthers').textContent = A.hasAudioSession()
-    ? 'ja, während Ansagen'
-    : 'nicht möglich auf diesem Gerät';
+    ? 'Aus lässt iOS machen, wie es von selbst tut'
+    : 'Dieses Gerät kennt die Schnittstelle nicht';
   app.dataset.dim = settings.dim ? '1' : '0';
 }
 

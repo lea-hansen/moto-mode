@@ -310,12 +310,18 @@ Vier Dinge sind Plattformgrenzen, keine Auslassungen. Sie bestimmen den Aufbau:
    die *diese App selbst* abspielt. Läuft Spotify, hängt an diesem Node kein
    Signal.
 
-   Die Ausnahme: Über `navigator.audioSession.type = 'transient'` sagt die App
-   dem System, dass gleich eine kurze Einblendung kommt — iOS senkt daraufhin
-   **fremden Ton selbst ab**, auch den von Spotify. Das nutzt die App während
-   jeder Ansage. Ein Lautstärkeregler wird daraus nicht: Wie stark abgesenkt
-   wird, bestimmt das System, nicht die App. Ob dein Gerät das kann, steht im
-   Setup unter *Fremde Musik absenken*.
+   Die Ausnahme kommt vom System selbst: **iOS senkt fremden Ton von allein ab**,
+   solange eine Webseite kurz etwas abspielt. Davon lebt die Absenkung während
+   der Ansagen, auch bei Spotify — ohne Zutun der App.
+
+   Genau deshalb fasst die App die Audio-Sitzung standardmäßig **nicht** an. Ein
+   Versuch, das über `navigator.audioSession.type` zu steuern, hat die Absenkung
+   abgeschaltet: `ambient` heißt ausdrücklich „andere nicht absenken“. Der
+   Schalter *Absenk-Hinweis an iOS* im Setup schickt zusätzlich `transient`
+   während einer Ansage; er ist aus, weil das Standardverhalten das bessere ist.
+
+   Ein Lautstärkeregler wird daraus ohnehin nicht: Wie stark abgesenkt wird,
+   bestimmt das System.
 4. **Tempolimits gibt iOS nicht heraus.** Weder CarPlay- noch Karten-Daten sind
    für Web-Apps zugänglich; deshalb OpenStreetMap und deshalb der Netzbedarf.
 

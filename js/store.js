@@ -33,6 +33,7 @@ const DEFAULTS = {
 
   avoid: { highway: false, toll: false, ferry: false, unpaved: false },
   navVoice: true,
+  duckHint: false,      // ausdrücklicher Absenk-Hinweis an iOS; aus = Systemverhalten
   navLang: 'de-DE',     // de-DE | ca-ES | es-ES
   country: 'auto',      // auto = nach GPS-Position; sonst ISO-Kürzel
   courseUp: true,
