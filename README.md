@@ -23,26 +23,48 @@ tools/layout-audit.html  prüft alle Geräte×Ansichten auf überlaufenden Inhal
 tools/nav-test.html      holt eine echte Route und prüft Führung und Ansagen
 ```
 
-## Auf dem iPhone testen
+## Auf dem iPhone installieren
 
-Geolocation, Service Worker und Wake Lock brauchen einen *secure context*.
-`http://192.168.x.x` genügt nicht — deshalb der HTTPS-Server:
+**<https://lea-hansen.github.io/moto-mode/>**
+
+1. Die Adresse am iPhone in **Safari** öffnen.
+2. Teilen-Menü → **Zum Home-Bildschirm**. Nur so läuft die App im Vollbild ohne
+   Safari-Leisten, und nur so greift der Wake-Lock zuverlässig.
+3. Die App vom Home-Bildschirm starten. Beim ersten Tipp fragt iOS nach dem
+   Standort → **Beim Verwenden erlauben**.
+
+Danach läuft sie auch ohne Netz: Der Service Worker hält die gesamte Oberfläche
+vor. Kartenkacheln, Routenberechnung und Tempolimit brauchen eine Verbindung,
+gefahrene Gegenden und bereits abgefragte Limits liegen aber im Cache.
+
+## Änderungen veröffentlichen
+
+Das Repository ist auf GitHub Pages aufgeschaltet — jeder Push auf `main` wird
+automatisch ausgeliefert:
+
+```bash
+# VERSION in sw.js hochzählen, sonst behalten installierte iPhones die alte Fassung
+git add -A && git commit -m "…" && git push
+```
+
+Der Build dauert etwa eine Minute. Auf dem iPhone erscheint die neue Fassung,
+sobald die App einmal im Vordergrund war und danach aus dem App-Switcher
+geschlossen und neu geöffnet wurde.
+
+## Lokal entwickeln
+
+Geolocation, Service Worker und Wake-Lock verlangen einen *secure context*.
+`localhost` genügt dafür, `http://192.168.x.x` nicht — deshalb der HTTPS-Server
+für Tests am Gerät:
 
 ```bash
 cd ~/Documents/MotoModeApp
-python3 serve.py
+python3 serve.py            # https://<LAN-IP>:8443/, selbstsigniert
+python3 -m http.server 8000 # reicht für Layout- und Logikprüfung am Mac
 ```
 
-1. Mac und iPhone im selben WLAN.
-2. Am iPhone in **Safari** die angezeigte Adresse öffnen (`https://192.168.x.x:8443/`).
-3. Zertifikatswarnung → *Details* → *Website besuchen*.
-4. Teilen-Menü → **Zum Home-Bildschirm**. Nur so läuft die App im Vollbild
-   (ohne Safari-Leisten) und nur so greift der Wake Lock zuverlässig.
-5. Beim ersten Tipp in der App fragt iOS nach dem Standort → **Beim Verwenden erlauben**.
-
-Danach funktioniert die App auch ohne Server und ohne Netz — sie liegt im
-Service-Worker-Cache. Für Änderungen am Code den Server erneut starten, die App
-im Vordergrund öffnen und einmal aus dem App-Switcher schließen und neu öffnen.
+Safari akzeptiert das selbstsignierte Zertifikat am iPhone nur widerwillig — für
+Tests am Gerät ist der Weg über die veröffentlichte Adresse der bequemere.
 
 ## Bedienung
 
@@ -234,7 +256,8 @@ Fernsteuerung der nativen Spotify-App über die Web API — braucht Internet und
 Spotify Premium:
 
 1. Auf <https://developer.spotify.com/dashboard> eine App anlegen.
-2. Die im Setup angezeigte **Redirect-URI** dort exakt eintragen.
+2. Als **Redirect-URI** dort `https://lea-hansen.github.io/moto-mode/` eintragen —
+   exakt so, wie es im Setup angezeigt wird.
 3. Client-ID im Setup hinterlegen, dann *Spotify verbinden*.
 
 Play/Pause, Titelwechsel und Titelanzeige funktionieren damit. Die
