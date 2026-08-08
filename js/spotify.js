@@ -280,15 +280,51 @@ export async function prev() {
 export const toggle = () => (spotify.playing ? pause() : play());
 
 /** Eine gemerkte Playlist bzw. ein Album wieder starten. */
-/** Playlist starten — auf Wunsch in zufälliger Reihenfolge. Die Zufallsschaltung
-    muss vor dem Start gesetzt werden, sonst greift sie erst beim nächsten Titel. */
-export async function playContext(uri, shuffle = true) {
-  if (await ensureDevice() === 'none') return;
-  spotify.playing = true;
-  quickRefresh();
+/** Spotify-App mit dieser Playlist öffnen. Der Rückweg, wenn die Web-API nicht
+    greift: Ohne laufende Spotify-App gibt es kein Connect-Gerät, und dann kann
+    keine Fernsteuerung etwas starten. Der Sprung in die App startet sie. */
+/* Naht für den Ablauftest: Er kann das Öffnen ersetzen, statt die Testseite
+   zu verlassen. Im Betrieb bleibt es beim schlichten Seitenwechsel. */
+let opener = (url) => { location.href = url; };
+export function setOpener(fn) { opener = fn; }
+
+function openInApp(uri) {
+  const [, kind, id] = uri.split(':');
+  if (!id) return;
+  spotify.error = 'Kein aktives Gerät — Spotify wird geöffnet';
   emit();
-  if (shuffle) await command('/me/player/shuffle', { method: 'PUT', query: { state: 'true' } });
-  if (await command('/me/player/play', { method: 'PUT', body: { context_uri: uri } }) === null) revert(false);
+  const t = Date.now();
+  opener(uri);                               // spotify:playlist:…
+  setTimeout(() => {
+    if (!document.hidden && Date.now() - t < 2500) opener(`https://open.spotify.com/${kind}/${id}`);
+  }, 1200);
+}
+
+/** Playlist starten — auf Wunsch in zufälliger Reihenfolge.
+    Reihenfolge der Aufrufe ist nicht beliebig: Zufallswiedergabe lässt sich auf
+    einem Gerät, das noch nie gespielt hat, oft nicht setzen. Deshalb erst
+    versuchen, und falls das misslingt, nach dem Start nachholen. */
+export async function playContext(uri, shuffle = true) {
+  const device = await ensureDevice();
+
+  if (device !== 'none') {
+    let shuffled = false;
+    if (shuffle) {
+      shuffled = await command('/me/player/shuffle', { method: 'PUT', query: { state: 'true' } }) !== null;
+    }
+    const started = await command('/me/player/play', { method: 'PUT', body: { context_uri: uri } });
+    if (started !== null) {
+      if (shuffle && !shuffled) await command('/me/player/shuffle', { method: 'PUT', query: { state: 'true' } });
+      spotify.playing = true;
+      spotify.error = null;
+      quickRefresh();
+      emit();
+      return true;
+    }
+  }
+
+  openInApp(uri);                            // stumm scheitern ist keine Option
+  return false;
 }
 
 /** Eigene Playlists. Werden gespeichert, damit sie auch ohne Netz erscheinen. */
@@ -413,6 +449,14 @@ export async function refresh() {
     spotify.artist = '';
   }
   emit();
+}
+
+/* Kommt die App aus dem Hintergrund zurück, kann Spotify zwischendurch
+   geschlossen worden sein. Dann ist das gemerkte Gerät wertlos. */
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) deviceCheckedAt = 0;
+  });
 }
 
 let poll = null;

@@ -348,6 +348,12 @@ Spotifys Server, nicht vom Gerät.
 
 Play/Pause, Titelwechsel, Playlistwahl und Titelanzeige funktionieren damit.
 
+**Die Spotify-App muss laufen oder kürzlich gelaufen sein.** Sie meldet sich nur
+dann als Connect-Gerät, und ohne Gerät kann keine Fernsteuerung etwas starten —
+auch das Antippen einer Playlist nicht. Passiert das, öffnet MotoMode Spotify
+direkt mit der gewählten Playlist; danach ist das Gerät angemeldet und die
+Steuerung aus der App heraus funktioniert.
+
 **Zwei Dinge fasst die App bewusst nicht an, solange Spotify die Quelle ist:**
 den AudioContext und die Fernbedienungstasten. Ein laufender AudioContext lässt
 iOS der Seite eine Audio-Session zuteilen, die fremde Wiedergabe unterbricht;

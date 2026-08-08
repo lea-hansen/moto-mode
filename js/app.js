@@ -688,6 +688,7 @@ function renderMusic() {
   $('#npTitle').textContent = sp
     ? (spotify.title || (spotify.connected ? 'Spotify bereit' : 'Nicht verbunden'))
     : (audio.title || 'Keine Wiedergabe');
+  $('#npArtist').dataset.err = sp && spotify.error ? '1' : '0';
   $('#npArtist').textContent = sp
     ? (spotify.error || spotify.artist
         || (spotify.connected ? (spotify.device ? `Bereit auf ${spotify.device}` : 'Spotify-App auf dem iPhone öffnen') : 'Im Setup verbinden'))

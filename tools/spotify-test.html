@@ -7,7 +7,7 @@ const out = document.getElementById('out'); const L = []; let fails = 0;
 const ok = (c, t) => { L.push(`  ${c ? 'ok  ' : 'FAIL'}  ${t}`); if (!c) fails++; };
 
 /* Spotify nachbilden: Zustand, Aufrufprotokoll, steuerbare Fehler. */
-const srv = { playing: false, shuffle: false, deviceActive: true, ctx: null, fail: null, calls: [] };
+const srv = { playing: false, shuffle: false, deviceActive: true, noDevice: false, ctx: null, fail: null, calls: [] };
 const real = window.fetch;
 window.fetch = (u, o = {}) => {
   const url = String(u);
@@ -19,7 +19,10 @@ window.fetch = (u, o = {}) => {
 
   if (srv.fail) return Promise.resolve(new Response('{}', { status: srv.fail, headers: srv.fail === 429 ? { 'Retry-After': '1' } : {} }));
   if (path === '/me/player/devices')
-    return json({ devices: [{ id: 'dev1', name: 'iPhone', type: 'Smartphone', is_active: srv.deviceActive, supports_volume: false }] });
+    return json({ devices: srv.noDevice ? []
+      : [{ id: 'dev1', name: 'iPhone', type: 'Smartphone', is_active: srv.deviceActive, supports_volume: false }] });
+  // Ohne Gerät weist Spotify jeden Wiedergabebefehl mit 404 ab.
+  if (srv.noDevice && path.startsWith('/me/player')) return Promise.resolve(new Response('{}', { status: 404 }));
   if (path === '/me/player') {
     if (o.method === 'PUT') { srv.deviceActive = true; return Promise.resolve(new Response(null, { status: 204 })); }
     return json({ is_playing: srv.playing, device: { name: 'iPhone', supports_volume: false },
@@ -67,6 +70,21 @@ L.push('— Playlist mit Zufallswiedergabe —');
 await S.playContext('spotify:playlist:a', true); await wait(50);
 ok(srv.shuffle === true, 'Zufallswiedergabe wird vorher gesetzt');
 ok(srv.ctx === 'spotify:playlist:a', 'Die gewählte Playlist läuft');
+
+L.push('— Playlist ohne aktives Gerät —');
+{
+  const jumps = [];
+  S.setOpener((url) => jumps.push(url));     // Sprung abfangen statt ausführen
+  srv.noDevice = true;
+  spotify.error = null;
+  await S.playContext('spotify:playlist:a', true);
+  await wait(60);
+  ok(!!spotify.error, `Ohne Gerät wird ein Grund gemeldet (${spotify.error || 'nichts'})`);
+  ok(jumps[0] === 'spotify:playlist:a', `Spotify-App wird mit der Playlist geöffnet (${jumps[0] || 'kein Sprung'})`);
+  srv.noDevice = false;
+  // Naht bewusst nicht zurücksetzen: Der Rückfall in openInApp feuert erst
+  // nach 1,2 s und würde die Testseite sonst doch noch verlassen.
+}
 
 L.push('— Playlists laden —');
 const pls = await S.loadPlaylists();
