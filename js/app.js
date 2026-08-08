@@ -6,7 +6,8 @@
    zwischen den beiden Plätzen, damit jeder nur einmal existiert und seine
    Ereignisbindungen behält. */
 
-import { settings, set, resetSettings, trip, resetTrip } from './store.js';
+import { settings, set, resetSettings, trip, resetTrip,
+         rememberDest, toggleFav, isFav } from './store.js';
 import { gps, onGps, startGps, headingName } from './gps.js';
 import { limit, onLimit, updatePosition, clearCache, cacheSize } from './limits.js';
 import * as N from './nav.js';
@@ -387,7 +388,7 @@ onNav(() => {
 
 const planSheet = $('#planSheet');
 let results = [];              // Trefferliste aus Suche oder Umkreis
-let listMode = 'results';      // results | routes
+let listMode = 'recent';       // recent | fav | results | routes
 let busy = '';
 
 function openPlan(on) {
@@ -404,13 +405,62 @@ function here() {
   return gps.fix ? { lat: gps.lat, lon: gps.lon } : null;
 }
 
+function renderStops() {
+  const row = $('#stopsRow');
+  row.textContent = '';
+  nav.stops.forEach((p, i) => {
+    if (i) {
+      const a = document.createElement('span');
+      a.className = 'stop-arrow';
+      a.textContent = '→';
+      row.appendChild(a);
+    }
+    const c = document.createElement('span');
+    c.className = 'stop-chip';
+    c.innerHTML = '<span class="sc-name"></span><button class="sc-x" aria-label="Punkt entfernen">×</button>';
+    c.querySelector('.sc-name').textContent = p.name;
+    c.querySelector('.sc-x').addEventListener('click', () => {
+      N.removeStop(i);
+      renderPlan();
+      if (N.isActive()) refreshRoute();
+    });
+    row.appendChild(c);
+  });
+}
+
+/** Eine Zeile der Trefferliste — mit Stern zum Merken. */
+function listRow(entry, badge, onPick) {
+  const b = document.createElement('button');
+  b.className = 'plan-item';
+  b.innerHTML = '<span class="pi-badge"></span><span class="pi-text">'
+    + '<span class="pi-name"></span><span class="pi-meta"></span></span>'
+    + '<span class="pi-star">★</span>';
+  b.querySelector('.pi-badge').textContent = badge;
+  b.querySelector('.pi-name').textContent = entry.name;
+  b.querySelector('.pi-meta').textContent =
+    [entry.meta, entry.dist != null ? N.fmtKm(entry.dist) : null].filter(Boolean).join(' · ');
+
+  const star = b.querySelector('.pi-star');
+  star.dataset.on = isFav(entry) ? '1' : '0';
+  star.addEventListener('click', (e) => {
+    e.stopPropagation();            // Stern soll das Ziel nicht setzen
+    toggleFav(entry);
+    star.dataset.on = isFav(entry) ? '1' : '0';
+    if (listMode === 'fav') renderPlan();
+  });
+
+  b.addEventListener('click', () => { A.unlock(); onPick(); });
+  return b;
+}
+
 function renderPlan() {
   const running = N.isActive();
   const planned = nav.state === 'planned';
   $('#planTitle').textContent = running ? 'Route' : 'Ziel';
 
-  // Vermeiden-Schalter
   $$('[data-avoid]').forEach((c) => { c.dataset.on = settings.avoid[c.dataset.avoid] ? '1' : '0'; });
+  $$('[data-list]').forEach((c) => { c.dataset.on = listMode === c.dataset.list ? '1' : '0'; });
+  renderStops();
 
   const box = $('#planList');
   box.textContent = '';
@@ -422,9 +472,11 @@ function renderPlan() {
     box.appendChild(d);
   };
 
-  if (busy) { show(busy); }
-  else if (nav.state === 'error') { show(nav.error); }
-  else if (listMode === 'routes' && nav.routes.length) {
+  if (busy) {
+    show(busy);
+  } else if (nav.state === 'error') {
+    show(nav.error);
+  } else if (listMode === 'routes' && nav.routes.length) {
     nav.routes.forEach((r, i) => {
       const b = document.createElement('button');
       b.className = 'plan-item';
@@ -438,27 +490,22 @@ function renderPlan() {
       if (!running) b.addEventListener('click', () => { N.chooseRoute(i); renderPlan(); });
       box.appendChild(b);
     });
-  } else if (results.length) {
-    results.slice(0, 5).forEach((r, i) => {
-      const b = document.createElement('button');
-      b.className = 'plan-item';
-      b.innerHTML = '<span class="pi-badge"></span><span class="pi-text">'
-        + '<span class="pi-name"></span><span class="pi-meta"></span></span>';
-      b.querySelector('.pi-badge').textContent = String(i + 1);
-      b.querySelector('.pi-name').textContent = r.name;
-      b.querySelector('.pi-meta').textContent =
-        [r.meta, r.dist != null ? N.fmtKm(r.dist) : null].filter(Boolean).join(' · ');
-      b.addEventListener('click', () => { A.unlock(); pickTarget(r); });
-      box.appendChild(b);
-    });
   } else {
-    show(nav.dest ? `Ziel: ${nav.dest.name}` : 'Ziel eingeben oder eine Kategorie wählen.');
+    const stored = listMode === 'fav' ? settings.favDest : listMode === 'recent' ? settings.recentDest : null;
+    const items = stored || results;
+    if (!items.length) {
+      show(listMode === 'fav' ? 'Noch keine Favoriten. Stern in einer Trefferzeile antippen.'
+        : listMode === 'recent' ? 'Noch keine Ziele angefahren.'
+        : 'Ziel eingeben oder eine Kategorie wählen.');
+    } else {
+      items.slice(0, 5).forEach((r, i) => box.appendChild(listRow(r, String(i + 1), () => pickTarget(r))));
+    }
   }
 
   $('#btnCalc').hidden = running;
   $('#btnStart').hidden = !(planned && !running);
-  $('#btnCalc').disabled = busy !== '' || (!nav.dest && !$('#destInput').value.trim());
-  $('#btnCalc').textContent = busy === 'Route wird berechnet …' ? 'RECHNET …' : 'ROUTE BERECHNEN';
+  $('#btnCalc').disabled = busy !== '' || (!nav.stops.length && !$('#destInput').value.trim());
+  $('#btnCalc').textContent = nav.stops.length > 1 ? 'ROUTE ÜBER ALLE PUNKTE' : 'ROUTE BERECHNEN';
 }
 
 async function withBusy(text, fn) {
@@ -467,15 +514,27 @@ async function withBusy(text, fn) {
   try { await fn(); } finally { busy = ''; renderPlan(); }
 }
 
-/** Ein Treffer wird zum Ziel und die Route sofort berechnet. */
+/** Ein Treffer wird als Routenpunkt angehängt und die Route neu gerechnet.
+    Beim ersten Punkt ist das schlicht das Ziel, bei weiteren ein Zwischenziel. */
 async function pickTarget(target) {
   const from = here();
   if (!from) { nav.error = 'Warte auf GPS-Position'; nav.state = 'error'; renderPlan(); return; }
-  set({ dest: target.name });
-  $('#destInput').value = target.name;
+  const point = { lat: target.lat, lon: target.lon, name: target.name };
+  N.addStop(point);
+  rememberDest(point);
+  set({ dest: point.name });
+  $('#destInput').value = '';
   results = [];
+  await refreshRoute();
+}
+
+/** Mit den aktuellen Punkten und Optionen neu rechnen — während der Fahrt
+    setzt sie die Führung selbst fort. */
+async function refreshRoute() {
+  const from = here();
+  if (!from) return;
   await withBusy('Route wird berechnet …', async () => {
-    const ok = await N.calculate(from, { lat: target.lat, lon: target.lon, name: target.name });
+    const ok = N.isActive() ? await N.recalculate(from) : await N.calculate(from, null);
     if (ok) listMode = 'routes';
   });
 }
@@ -526,30 +585,31 @@ $$('[data-avoid]').forEach((c) => c.addEventListener('click', () => {
   const key = c.dataset.avoid;
   set({ avoid: { ...settings.avoid, [key]: !settings.avoid[key] } });
   renderPlan();
-  // Liegt schon eine Route vor, mit den neuen Vorgaben neu rechnen.
-  if (nav.dest && !N.isActive()) {
-    const from = here();
-    if (from) withBusy('Route wird berechnet …', async () => {
-      const ok = await N.calculate(from, nav.dest);
-      if (ok) listMode = 'routes';
-    });
-  }
+  // Auch mitten in der Fahrt neu rechnen — die Führung läuft danach weiter.
+  if (nav.stops.length) refreshRoute();
+}));
+
+$$('[data-list]').forEach((c) => c.addEventListener('click', () => {
+  listMode = c.dataset.list;
+  results = [];
+  nav.error = '';
+  renderPlan();
 }));
 
 $('#btnCalc').addEventListener('click', async () => {
   A.unlock();
   const from = here();
   if (!from) { nav.state = 'error'; nav.error = 'Warte auf GPS-Position'; renderPlan(); return; }
-  const target = nav.dest || $('#destInput').value.trim();
-  if (!target) return;
+  const typed = $('#destInput').value.trim();
+  if (!nav.stops.length && !typed) return;
   await withBusy('Route wird berechnet …', async () => {
-    const ok = await N.calculate(from, target);
-    if (ok) listMode = 'routes';
+    const ok = await N.calculate(from, nav.stops.length ? null : typed);
+    if (ok) { listMode = 'routes'; if (nav.dest) rememberDest(nav.dest); }
   });
 });
 
 $('#btnStart').addEventListener('click', () => { A.unlock(); N.begin(); openPlan(false); });
-$('#btnNavStop').addEventListener('click', () => { N.stop(); results = []; listMode = 'results'; openPlan(false); });
+$('#btnNavStop').addEventListener('click', () => { N.stop(); results = []; listMode = 'recent'; openPlan(false); });
 
 /* ── Musik ─────────────────────────────────────────────────────────────── */
 
@@ -667,10 +727,7 @@ function renderSettings() {
   $('#setUnit').value = settings.unit;
   $('#setSource').value = settings.source;
   $('#setSpotifyId').value = settings.spotifyId;
-  $('#setOverpass').value = settings.overpass;
   $('#setMapStyle').value = settings.mapStyle;
-  $('#setValhalla').value = settings.valhalla;
-  $('#setPhoton').value = settings.photon;
   $('#destInput').value = settings.dest;
   $('#limitCacheCount').textContent = String(cacheSize());
   app.dataset.dim = settings.dim ? '1' : '0';
@@ -695,8 +752,6 @@ Object.entries(CHECKS).forEach(([id, key]) => {
   });
 });
 
-$('#setValhalla').addEventListener('change', (e) => set({ valhalla: e.target.value.trim() }));
-$('#setPhoton').addEventListener('change', (e) => set({ photon: e.target.value.trim() }));
 $('#setMapStyle').addEventListener('change', (e) => { set({ mapStyle: e.target.value }); M.setStyle(e.target.value); });
 $('#setUnit').addEventListener('change', (e) => { set({ unit: e.target.value }); renderTelemetry(); });
 
@@ -720,9 +775,16 @@ $('#btnTestVoice').addEventListener('click', () => {
   A.speak(`Ansage. Lautstärke ${Math.round(settings.voiceVol * 100)} Prozent.`);
 });
 
+$('#setRedirect').addEventListener('change', (e) => set({ redirect: e.target.value.trim() }));
+$('#btnCopyRedirect').addEventListener('click', async () => {
+  const uri = S.redirectUri();
+  try { await navigator.clipboard.writeText(uri); $('#btnCopyRedirect').textContent = 'Kopiert ✓'; }
+  catch { $('#setRedirect').select(); $('#btnCopyRedirect').textContent = 'Markiert — von Hand kopieren'; }
+  setTimeout(() => { $('#btnCopyRedirect').textContent = 'Redirect-URI kopieren'; }, 2500);
+});
+
 $('#btnSpotifyConnect').addEventListener('click', () => S.connect());
 $('#setSpotifyId').addEventListener('change', (e) => set({ spotifyId: e.target.value.trim() }));
-$('#setOverpass').addEventListener('change', (e) => set({ overpass: e.target.value.trim() }));
 $('#btnSpotifyLogout').addEventListener('click', () => { S.logout(); renderMusic(); });
 $('#btnLimitCache').addEventListener('click', () => { clearCache(); $('#limitCacheCount').textContent = '0'; });
 $('#btnTripReset').addEventListener('click', () => { resetTrip(); });
@@ -735,6 +797,15 @@ $('#btnFactory').addEventListener('click', () => { resetSettings(); location.rel
 setView('default');
 $('#btnMute').dataset.on = settings.muted ? '1' : '0';
 $('#muteLabel').textContent = settings.muted ? 'TON AN' : 'MUTE';
+// Kartenstile aus map.js in die Auswahl füllen — eine Quelle für beides.
+const styleSel = $('#setMapStyle');
+Object.entries(M.STYLES).forEach(([id, def]) => {
+  const o = document.createElement('option');
+  o.value = id;
+  o.textContent = def.label;
+  styleSel.appendChild(o);
+});
+
 renderSettings();
 renderMusic();
 renderTelemetry();

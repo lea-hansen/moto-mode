@@ -28,6 +28,8 @@ const DEFAULTS = {
 
   back: 10,             // Sekunden bis zum Rücksprung in die Standardansicht (0 = aus)
   dest: '',             // Ziel für Route und Navi-Apps
+  recentDest: [],       // zuletzt angefahrene Ziele
+  favDest: [],          // gemerkte Ziele
 
   avoid: { highway: false, toll: false, ferry: false, unpaved: false },
   navVoice: true,
@@ -38,6 +40,7 @@ const DEFAULTS = {
 
   source: 'local',      // local | spotify
   spotifyId: '',
+  redirect: '',         // abweichende Redirect-URI; leer = automatisch
   recent: [],           // zuletzt gehört, max. 3
 };
 
@@ -63,6 +66,26 @@ export function set(patch) {
   Object.assign(settings, patch);
   try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch {}
   for (const fn of listeners) fn(settings, patch);
+}
+
+/** Ein angefahrenes Ziel vormerken — acht Stück, ohne Dubletten. */
+export function rememberDest(dest) {
+  if (!dest?.name) return;
+  const key = (d) => `${d.name}|${d.lat?.toFixed(4)}|${d.lon?.toFixed(4)}`;
+  const list = [dest, ...settings.recentDest.filter((d) => key(d) !== key(dest))].slice(0, 8);
+  set({ recentDest: list });
+}
+
+/** Ziel als Favorit an- oder abwählen. */
+export function toggleFav(dest) {
+  if (!dest?.name) return;
+  const same = (d) => d.name === dest.name;
+  const on = settings.favDest.some(same);
+  set({ favDest: on ? settings.favDest.filter((d) => !same(d)) : [dest, ...settings.favDest].slice(0, 12) });
+}
+
+export function isFav(dest) {
+  return !!dest?.name && settings.favDest.some((d) => d.name === dest.name);
 }
 
 /** Zuletzt gehörte Quelle vormerken — genau drei, ohne Dubletten. */

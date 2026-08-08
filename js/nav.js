@@ -16,8 +16,11 @@ import { speak } from './audio.js';
 export const nav = {
   state: 'idle',        // idle | geocoding | routing | planned | active | offroute | arrived | error
   error: '',
-  dest: null,           // { lat, lon, name }
+  stops: [],            // Zwischenziele und Ziel, in Reihenfolge
+  dest: null,           // letztes Ziel der Kette
   routes: [],           // Hauptroute und Alternativen
+  legEnds: [],          // Punktindizes, an denen ein Abschnitt endet
+  passed: 0,            // erreichte Zwischenziele
   selected: 0,
   shape: [],            // Geometrie der gewählten Route, [[lat, lon], …]
   maneuvers: [],
@@ -88,7 +91,7 @@ function matchToRoute(lat, lon) {
   const p = project(lat, lon);
   let best = { dist: Infinity, seg: lastSeg, t: 0 };
   const from = Math.max(0, lastSeg - 10);
-  const to = Math.min(xy.length - 1, lastSeg + 200);
+  const to = Math.min(xy.length - 1, lastSeg + 600);   // ~12 km — überbrückt auch eine GPS-Lücke im Tunnel
   for (let i = from; i < to; i++) {
     const r = projectOnSegment(p, xy[i], xy[i + 1]);
     if (r.dist < best.dist) best = { dist: r.dist, seg: i, t: r.t };
@@ -128,23 +131,50 @@ export async function geocode(query, near) {
   return { lat, lon, name: [p.name, p.city || p.town || p.village].filter(Boolean).join(', ') || query };
 }
 
+/** Valhalla liefert je Punktepaar einen Abschnitt. Für die Führung brauchen wir
+    eine durchgehende Linie, also werden Geometrie und Manöver aneinandergehängt
+    und die Manöverindizes mitverschoben. `legEnds` merkt sich, wo ein Abschnitt
+    endet — daran erkennen wir später erreichte Zwischenziele. */
 function tripToRoute(trip) {
-  const leg = trip?.legs?.[0];
-  if (!leg) return null;
+  const legs = trip?.legs || [];
+  if (!legs.length) return null;
+
+  const shape = [];
+  const maneuvers = [];
+  const legEnds = [];
+
+  for (const leg of legs) {
+    const offset = shape.length;
+    const pts = decodePolyline(leg.shape);
+    const skipFirst = offset > 0 ? 1 : 0;   // Anschlusspunkt nicht doppelt führen
+    shape.push(...pts.slice(skipFirst));
+    const shift = offset - skipFirst;
+    for (const m of leg.maneuvers || []) {
+      maneuvers.push({
+        ...m,
+        begin_shape_index: m.begin_shape_index + shift,
+        end_shape_index: m.end_shape_index + shift,
+      });
+    }
+    legEnds.push(shape.length - 1);
+  }
+
   return {
-    shape: decodePolyline(leg.shape),
-    maneuvers: leg.maneuvers || [],
+    shape,
+    maneuvers,
+    legEnds,
     length: (trip.summary?.length || 0) * 1000,
     time: trip.summary?.time || 0,
   };
 }
 
-/** Hauptroute plus bis zu zwei Alternativen. */
-async function fetchRoutes(from, to) {
+/** Hauptroute plus bis zu zwei Alternativen. Alternativen liefert Valhalla nur
+    für Strecken ohne Zwischenziele. */
+async function fetchRoutes(from, stops) {
   const body = {
-    locations: [{ lat: from.lat, lon: from.lon }, { lat: to.lat, lon: to.lon }],
+    locations: [{ lat: from.lat, lon: from.lon }, ...stops.map((p) => ({ lat: p.lat, lon: p.lon }))],
     costing: 'motorcycle',
-    alternates: 2,
+    alternates: stops.length > 1 ? 0 : 2,
     costing_options: { motorcycle: costingOptions() },
     directions_options: { language: 'de-DE', units: 'kilometers' },
   };
@@ -162,19 +192,26 @@ async function fetchRoutes(from, to) {
   return list;
 }
 
-/** Route(n) berechnen, aber noch nicht führen. */
-export async function calculate(from, destQuery) {
+/** Route über alle gesetzten Punkte berechnen, aber noch nicht führen.
+    `target` darf ein Suchtext, ein Punkt oder nichts sein — dann gelten die
+    bereits gesetzten Zwischenziele. */
+export async function calculate(from, target) {
   if (!navigator.onLine) { fail('Für die Routenberechnung fehlt die Verbindung'); return false; }
 
   try {
-    nav.state = 'geocoding'; nav.error = ''; emit();
-    const dest = typeof destQuery === 'string' ? await geocode(destQuery, from) : destQuery;
+    if (target) {
+      nav.state = 'geocoding'; nav.error = ''; emit();
+      const point = typeof target === 'string' ? await geocode(target, from) : target;
+      nav.stops = [point];
+    }
+    if (!nav.stops.length) { fail('Kein Ziel gesetzt'); return false; }
 
-    nav.state = 'routing'; emit();
-    const list = await fetchRoutes(from, dest);
+    nav.state = 'routing'; nav.error = ''; emit();
+    const list = await fetchRoutes(from, nav.stops);
 
-    nav.dest = dest;
+    nav.dest = nav.stops[nav.stops.length - 1];
     nav.routes = list;
+    nav.passed = 0;
     applySelection(0);
     nav.state = 'planned';
     emit();
@@ -185,11 +222,41 @@ export async function calculate(from, destQuery) {
   }
 }
 
+/** Zwischenziel anhängen. Die Reihenfolge ist die der Eingabe. */
+export function addStop(point) {
+  nav.stops = [...nav.stops, point];
+  nav.dest = point;
+  emit();
+}
+
+export function removeStop(i) {
+  nav.stops = nav.stops.filter((_, k) => k !== i);
+  nav.dest = nav.stops[nav.stops.length - 1] || null;
+  if (!nav.stops.length) { nav.routes = []; nav.shape = []; nav.maneuvers = []; }
+  emit();
+}
+
+/** Neu rechnen mit den aktuellen Optionen — auch mitten in der Fahrt. Bereits
+    erreichte Zwischenziele fallen dabei weg, sonst würde die Route zurückführen. */
+export async function recalculate(from) {
+  const wasActive = isActive();
+  const remaining = nav.stops.slice(nav.passed);
+  if (!remaining.length) return false;
+
+  const keep = nav.stops;
+  nav.stops = remaining;
+  const ok = await calculate(from, null);
+  if (!ok) { nav.stops = keep; return false; }
+  if (wasActive) begin();
+  return true;
+}
+
 function applySelection(i) {
   nav.selected = Math.max(0, Math.min(nav.routes.length - 1, i));
   const r = nav.routes[nav.selected];
   nav.shape = r.shape;
   nav.maneuvers = r.maneuvers;
+  nav.legEnds = r.legEnds || [];
   nav.remainingM = r.length;
   nav.remainingS = r.time;
   totalTime = r.time;
@@ -225,6 +292,9 @@ function fail(msg) {
 
 export function stop() {
   nav.state = 'idle';
+  nav.stops = [];
+  nav.legEnds = [];
+  nav.passed = 0;
   nav.routes = [];
   nav.selected = 0;
   nav.shape = [];
@@ -271,6 +341,9 @@ export function update(lat, lon, speedMs) {
 
   const turn = nav.maneuvers[next];
   nav.distToTurn = turn ? Math.max(0, cum[Math.min(turn.begin_shape_index, cum.length - 1)] - m.along) : 0;
+
+  // Wie viele Zwischenziele liegen schon hinter uns?
+  nav.passed = nav.legEnds.filter((end) => end <= m.seg).length;
 
   // Ziel erreicht?
   if (nav.remainingM < 25) {
@@ -325,5 +398,5 @@ function checkOffRoute(lat, lon, dist) {
   if (!navigator.onLine || !nav.dest) return;
   if (Date.now() - lastReroute < 15000) return;
   lastReroute = Date.now();
-  calculate({ lat, lon }, nav.dest).then((ok) => { if (ok) begin(); });
+  recalculate({ lat, lon });
 }

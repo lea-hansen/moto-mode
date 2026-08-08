@@ -8,7 +8,20 @@
    Fährt eine Route, dreht sich die Karte in Fahrtrichtung und zoomt nach Tempo —
    im Stadtverkehr näher, auf der Autobahn weiter heraus. */
 
-const STYLE_URL = (name) => `https://tiles.openfreemap.org/styles/${name}`;
+/* Neun Stile aus zwei quelloffenen Diensten, beide ohne API-Schlüssel. */
+export const STYLES = {
+  positron:  { url: 'https://tiles.openfreemap.org/styles/positron',  label: 'Positron — hell, sehr ruhig' },
+  bright:    { url: 'https://tiles.openfreemap.org/styles/bright',    label: 'Bright — hell, detailliert' },
+  liberty:   { url: 'https://tiles.openfreemap.org/styles/liberty',   label: 'Liberty — farbig, klassisch' },
+  fiord:     { url: 'https://tiles.openfreemap.org/styles/fiord',     label: 'Fiord — gedeckt, kühl' },
+  dark:      { url: 'https://tiles.openfreemap.org/styles/dark',      label: 'Dark — dunkel' },
+  colorful:  { url: 'https://tiles.versatiles.org/assets/styles/colorful/style.json',  label: 'Colorful — kräftig' },
+  graybeard: { url: 'https://tiles.versatiles.org/assets/styles/graybeard/style.json', label: 'Graybeard — grau' },
+  eclipse:   { url: 'https://tiles.versatiles.org/assets/styles/eclipse/style.json',   label: 'Eclipse — dunkel, kontrastreich' },
+  neutrino:  { url: 'https://tiles.versatiles.org/assets/styles/neutrino/style.json',  label: 'Neutrino — minimal' },
+};
+
+const STYLE_URL = (name) => (STYLES[name] || STYLES.positron).url;
 
 /* Reicht das Netz nicht für den Stil, bleibt wenigstens die Route sichtbar. */
 const FALLBACK_STYLE = {

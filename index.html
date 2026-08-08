@@ -158,6 +158,10 @@
     </div>
 
     <div class="chip-row" id="poiRow">
+      <span class="seg" id="listSeg">
+        <button class="seg-item" data-list="recent">Letzte</button>
+        <button class="seg-item" data-list="fav">Favoriten</button>
+      </span>
       <button class="chip" data-poi="fuel">Tankstelle</button>
       <button class="chip" data-poi="food">Essen</button>
       <button class="chip" data-poi="hotel">Hotel</button>
@@ -165,6 +169,7 @@
       <button class="chip" data-poi="repair">Werkstatt</button>
     </div>
 
+    <div class="stops-row" id="stopsRow"></div>
     <div class="plan-list" id="planList"></div>
 
     <div class="chip-row opts">
@@ -195,18 +200,7 @@
       <label class="row"><span>Abbiegeansagen</span><input type="checkbox" class="sw" id="setNavVoice"></label>
       <label class="row"><span>Karte in Fahrtrichtung</span><input type="checkbox" class="sw" id="setCourseUp"></label>
       <label class="row"><span>Kartenstil</span>
-        <select id="setMapStyle">
-          <option value="positron">Hell, kontrastreich</option>
-          <option value="liberty">Farbig</option>
-          <option value="bright">Hell, detailliert</option>
-          <option value="dark">Dunkel</option>
-        </select>
-      </label>
-      <label class="row col"><span>Routing-Endpunkt (Valhalla)</span>
-        <input type="text" id="setValhalla" autocapitalize="off" autocorrect="off" spellcheck="false">
-      </label>
-      <label class="row col"><span>Zielsuche (Photon)</span>
-        <input type="text" id="setPhoton" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <select id="setMapStyle"></select>
       </label>
     </div>
 
@@ -262,9 +256,6 @@
       <label class="row"><span>Limit abrufen (braucht Netz)</span><input type="checkbox" class="sw" id="setLimits"></label>
       <label class="row"><span>Warnen bei Überschreitung</span><input type="checkbox" class="sw" id="setWarn"></label>
       <label class="row"><span>Toleranz</span><span class="num"><input type="number" id="setTol" min="0" max="30" step="1"> <i>km/h</i></span></label>
-      <label class="row col"><span>Overpass-Endpunkt</span>
-        <input type="text" id="setOverpass" autocapitalize="off" autocorrect="off" spellcheck="false">
-      </label>
       <button class="row as-btn" id="btnLimitCache">Limit-Cache leeren (<span id="limitCacheCount">0</span> Zellen)</button>
     </div>
 
@@ -289,7 +280,10 @@
           <li>Dann auf <b>Spotify verbinden</b> tippen. Es braucht Spotify&nbsp;Premium.</li>
         </ol>
       </div>
-      <div class="row col"><span>Redirect-URI (dort eintragen)</span><code id="redirectUri"></code></div>
+      <label class="row col"><span>Redirect-URI — muss zeichengenau mit dem Dashboard übereinstimmen</span>
+        <input type="text" id="setRedirect" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+      <button class="row as-btn" id="btnCopyRedirect">Redirect-URI kopieren</button>
       <label class="row col"><span>Client-ID</span>
         <input type="text" id="setSpotifyId" placeholder="z. B. 4c2a1f…" autocapitalize="off" autocorrect="off" spellcheck="false">
       </label>

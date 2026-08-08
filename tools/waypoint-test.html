@@ -1,0 +1,50 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Mehrpunkt-Test</title></head><body><pre id="out">…</pre>
+<audio id="player"></audio>
+<script type="module">
+import * as N from '../js/nav.js';
+import { nav } from '../js/nav.js';
+import { settings, set } from '../js/store.js';
+const out=document.getElementById('out'); const L=[];
+if (window.speechSynthesis) speechSynthesis.speak=()=>{};
+
+(async()=>{
+  const from={lat:50.3350, lon:6.9470};
+
+  L.push('— Mehrere Routenpunkte —');
+  N.addStop({lat:50.3823, lon:6.9304, name:'Adenau'});
+  N.addStop({lat:50.4436, lon:6.8420, name:'Kelberg'});
+  L.push(`  Punkte: ${nav.stops.map(s=>s.name).join(' → ')}`);
+  await N.calculate(from, null);
+  L.push(`  Status: ${nav.state} ${nav.error||''}`);
+  if(nav.state==='planned'){
+    const r=nav.routes[0];
+    L.push(`  Gesamtstrecke: ${(r.length/1000).toFixed(1)} km, ${Math.round(r.time/60)} min`);
+    L.push(`  Punkte in der Linie: ${r.shape.length}, Manöver: ${r.maneuvers.length}`);
+    L.push(`  Abschnittsenden bei Index: ${r.legEnds.join(', ')}  (${r.legEnds.length} Abschnitte)`);
+    // Manöverindizes müssen streng aufsteigend sein, sonst wurde falsch zusammengefügt
+    const idx=r.maneuvers.map(m=>m.begin_shape_index);
+    const ok=idx.every((v,i)=>i===0||v>=idx[i-1]);
+    L.push(`  Manöverindizes aufsteigend: ${ok?'ja':'NEIN — Zusammenfügen fehlerhaft'}`);
+    L.push(`  Letzter Manöverindex ${idx[idx.length-1]} ≤ ${r.shape.length-1}: ${idx[idx.length-1]<=r.shape.length-1?'ja':'NEIN'}`);
+  }
+
+  L.push('— Führung, Zwischenziel passieren —');
+  N.begin();
+  const pts=nav.shape, ends=nav.legEnds;
+  [0.1, 0.45, 0.8].forEach(f=>{
+    const i=Math.floor(f*(pts.length-1));
+    N.update(pts[i][0], pts[i][1], 22);
+    L.push(`   bei Index ${i}: Rest ${N.fmtKm(nav.remainingM)}, erreichte Zwischenziele: ${nav.passed}`);
+  });
+
+  L.push('— Option ändern während der Fahrt —');
+  const before=nav.remainingM;
+  set({avoid:{...settings.avoid, highway:true}});
+  const mid=pts[Math.floor(pts.length*0.5)];
+  const ok=await N.recalculate({lat:mid[0], lon:mid[1]});
+  L.push(`  neu gerechnet: ${ok?'ja':'nein'}, Status danach: ${nav.state}`);
+  L.push(`  verbleibende Punkte: ${nav.stops.map(s=>s.name).join(' → ')}`);
+  L.push(`  Rest vorher ${N.fmtKm(before)} → jetzt ${N.fmtKm(nav.remainingM)}`);
+  out.textContent=L.join('\n');
+})();
+</script></body></html>

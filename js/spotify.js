@@ -27,8 +27,12 @@ const listeners = new Set();
 export function onSpotify(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function emit() { for (const fn of listeners) fn(spotify); }
 
+/** Spotify vergleicht die Redirect-URI zeichengenau. `new URL('.', …)` liefert
+    immer die Verzeichnisform mit Schrägstrich am Ende — egal ob die App unter
+    „…/moto-mode/“ oder „…/moto-mode/index.html“ geöffnet wurde. Wer im Dashboard
+    etwas anderes eingetragen hat, kann es im Setup überschreiben. */
 export function redirectUri() {
-  return location.origin + location.pathname.replace(/index\.html$/, '');
+  return settings.redirect.trim() || new URL('.', location.href).href;
 }
 
 /* ── PKCE ──────────────────────────────────────────────────────────────── */
