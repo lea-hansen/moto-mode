@@ -145,7 +145,7 @@ let duckTimer = null;
 export function speak(text) {
   if (!('speechSynthesis' in window) || !text) return;
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'de-DE';
+  u.lang = settings.navLang || 'de-DE';
   u.volume = settings.voiceVol;
   u.rate = 1.05;
 

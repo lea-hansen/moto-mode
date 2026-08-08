@@ -14,8 +14,8 @@ const DEFAULTS = {
   muted: false,
 
   smart: false,         // Geschwindigkeits-Automatik
-  t1: 60,               // Stadt bis … km/h
-  t2: 100,              // Landstraße bis … km/h
+  t1: 55,               // Zona urbana bis … km/h
+  t2: 95,               // Carretera bis … km/h
   g1: 85,               // Pegel Stadt %
   g2: 100,              // Pegel Landstraße %
   g3: 115,              // Pegel Autobahn %
@@ -33,6 +33,8 @@ const DEFAULTS = {
 
   avoid: { highway: false, toll: false, ferry: false, unpaved: false },
   navVoice: true,
+  navLang: 'de-DE',     // de-DE | ca-ES | es-ES
+  country: 'es',        // bestimmt die Vorgabewerte für Tempolimits
   courseUp: true,
   mapStyle: 'positron',
   valhalla: 'https://valhalla1.openstreetmap.de/route',

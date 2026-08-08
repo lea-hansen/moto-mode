@@ -10,6 +10,7 @@ js/store.js           Einstellungen + Tourdaten (localStorage)
 js/gps.js             GPS: Tempo, Zonenerkennung, Tourstatistik
 js/limits.js          Tempolimit aus OpenStreetMap (Overpass) mit Offline-Cache
 js/nav.js             Abbiegenavigation: Route, Alternativen, Führung, Ansagen
+js/phrases.js         App-Ansagen auf Deutsch, Katalanisch und Spanisch
 js/poi.js             Umkreissuche: Tankstelle, Essen, Hotel, Parken, Werkstatt
 js/overpass.js        gemeinsame Warteschlange für alle Overpass-Abfragen
 js/map.js             Kartendarstellung auf MapLibre GL
@@ -206,6 +207,34 @@ Holt eine echte Route, fährt sie synthetisch ab und meldet Restweg, Manöver,
 Abstand zur Route und die ausgelösten Ansagen. Genau damit ist aufgefallen, dass
 ein globaler Suchlauf im Positions-Matching bei Routen, die sich kreuzen, auf
 einen falschen Abschnitt springt.
+
+## Einsatzgebiet: Katalonien
+
+Die App ist auf Spanien eingestellt, nicht auf Deutschland. Das betrifft mehr,
+als es zunächst scheint:
+
+| | Spanien | Deutschland |
+|---|---|---|
+| Autopista/Autovía ohne getaggtes Limit | **120** | unbegrenzt |
+| Ortsstraße (`residential`) | 30 (seit 2021, einspurig) | 50 |
+| Carretera convencional (`ES:rural`) | 90 | 100 |
+| Spielstraße | 20 | 7 |
+
+Der Vorgabewert steht im Setup unter *Land für Tempo-Vorgaben*. Er greift nur,
+wenn in OSM kein `maxspeed` steht — in Katalonien ist das selten, dort ist
+direkt getaggt (an der AP-7 und am Passeig de Gràcia geprüft).
+
+**Die Ortslage wird anders bestimmt als in Deutschland.** Das Feld
+`maxspeed:type`, aus dem sich Innerorts/Außerorts sauber ableiten ließe, fehlt
+in Katalonien fast überall. Deshalb entscheidet dort die Straßenklasse plus das
+getaggte Tempo: Autopista und Autovía → Autobahnschild, 50 km/h und darunter →
+Ortstafel, darüber → Ortsende. Das ist eine Heuristik, keine Auskunft aus den
+Daten — eine Ortsdurchfahrt mit 60 wird sie falsch einordnen.
+
+**Ansagen** gibt es auf Deutsch, Katalanisch und Spanisch (Setup →
+*Ansagesprache*). Valhalla liefert die Abbiegeanweisungen in derselben Sprache
+mit, sodass Stimme und Straßennamen zusammenpassen: „Gira a la dreta cap a
+Carrer de València."
 
 ## Tempolimit ohne Navigation
 

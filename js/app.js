@@ -14,6 +14,7 @@ import * as N from './nav.js';
 import { nav, onNav } from './nav.js';
 import * as M from './map.js';
 import * as POI from './poi.js';
+import { phrases, LANGS } from './phrases.js';
 import * as A from './audio.js';
 import { audio, onAudio } from './audio.js';
 import * as S from './spotify.js';
@@ -174,7 +175,7 @@ $('#btnMute').addEventListener('click', () => { A.unlock(); setMuted(!settings.m
 
 /* ── Smart Volume ──────────────────────────────────────────────────────── */
 
-const TIER_NAME = { 1: 'Innerorts', 2: 'Außerorts', 3: 'Autobahn' };
+const tierName = (t) => phrases(settings.navLang).tiers[t];
 let lastTier = 0;
 let lastSpotifyPush = 0;
 
@@ -213,10 +214,13 @@ function fmtDuration(ms) {
 }
 
 /** Ortslage: bevorzugt aus den OSM-Tags, sonst notdürftig aus dem Tempo. */
+const PICTO = { Innerorts: 'town', 'Außerorts': 'rural', Autobahn: 'motorway' };
+const TIER_PICTO = { 1: 'town', 2: 'rural', 3: 'motorway' };
+
 function areaLabel() {
-  if (limit.area) return { text: limit.area, src: 'osm' };
-  if (gps.fix) return { text: TIER_NAME[gps.tier], src: 'tempo' };
-  return { text: '—', src: 'none' };
+  if (limit.area) return { text: limit.area, picto: PICTO[limit.area], src: 'osm' };
+  if (gps.fix) return { text: tierName(gps.tier), picto: TIER_PICTO[gps.tier], src: 'tempo' };
+  return { text: '—', picto: 'none', src: 'none' };
 }
 
 function renderLimit() {
@@ -236,8 +240,7 @@ function renderLimit() {
 
   // Ortslage als Piktogramm statt Wort.
   const area = areaLabel();
-  const PICTO = { Innerorts: 'town', 'Außerorts': 'rural', Autobahn: 'motorway' };
-  $('#areaSign').dataset.area = PICTO[area.text] || 'none';
+  $('#areaSign').dataset.area = area.picto || 'none';
 
   const parts = [];
   if (limit.road) parts.push(limit.road);
@@ -272,7 +275,7 @@ function renderTelemetry() {
       warnActive = true;
       if (Date.now() - warnSpoken > 20000) {
         warnSpoken = Date.now();
-        A.speak(`Tempolimit ${Math.round(cap)}`);
+        A.speak(phrases(settings.navLang).speedLimit(Math.round(cap)));
       }
     } else if (warnActive && gps.raw < cap) {
       warnActive = false;
@@ -281,7 +284,7 @@ function renderTelemetry() {
   $('#limitTile').dataset.warn = warnActive ? '1' : '0';
 
   if (gps.tier !== lastTier) {
-    if (lastTier && settings.tierSpeak && settings.smart) A.speak(TIER_NAME[gps.tier]);
+    if (lastTier && settings.tierSpeak && settings.smart) A.speak(tierName(gps.tier));
     lastTier = gps.tier;
   }
 
@@ -728,6 +731,8 @@ function renderSettings() {
   $('#setSource').value = settings.source;
   $('#setSpotifyId').value = settings.spotifyId;
   $('#setMapStyle').value = settings.mapStyle;
+  $('#setNavLang').value = settings.navLang;
+  $('#setCountry').value = settings.country;
   $('#destInput').value = settings.dest;
   $('#limitCacheCount').textContent = String(cacheSize());
   app.dataset.dim = settings.dim ? '1' : '0';
@@ -752,6 +757,8 @@ Object.entries(CHECKS).forEach(([id, key]) => {
   });
 });
 
+$('#setNavLang').addEventListener('change', (e) => { set({ navLang: e.target.value }); renderLimit(); });
+$('#setCountry').addEventListener('change', (e) => set({ country: e.target.value }));
 $('#setMapStyle').addEventListener('change', (e) => { set({ mapStyle: e.target.value }); M.setStyle(e.target.value); });
 $('#setUnit').addEventListener('change', (e) => { set({ unit: e.target.value }); renderTelemetry(); });
 
@@ -772,7 +779,7 @@ $('#filePick').addEventListener('change', (e) => {
 
 $('#btnTestVoice').addEventListener('click', () => {
   A.unlock();
-  A.speak(`Ansage. Lautstärke ${Math.round(settings.voiceVol * 100)} Prozent.`);
+  A.speak(phrases(settings.navLang).testVoice(Math.round(settings.voiceVol * 100)));
 });
 
 $('#setRedirect').addEventListener('change', (e) => set({ redirect: e.target.value.trim() }));
@@ -798,6 +805,13 @@ setView('default');
 $('#btnMute').dataset.on = settings.muted ? '1' : '0';
 $('#muteLabel').textContent = settings.muted ? 'TON AN' : 'MUTE';
 // Kartenstile aus map.js in die Auswahl füllen — eine Quelle für beides.
+const langSel = $('#setNavLang');
+Object.entries(LANGS).forEach(([id, label]) => {
+  const o = document.createElement('option');
+  o.value = id; o.textContent = label;
+  langSel.appendChild(o);
+});
+
 const styleSel = $('#setMapStyle');
 Object.entries(M.STYLES).forEach(([id, def]) => {
   const o = document.createElement('option');

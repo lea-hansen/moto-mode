@@ -12,6 +12,7 @@
 
 import { settings } from './store.js';
 import { speak } from './audio.js';
+import { phrases } from './phrases.js';
 
 export const nav = {
   state: 'idle',        // idle | geocoding | routing | planned | active | offroute | arrived | error
@@ -176,7 +177,7 @@ async function fetchRoutes(from, stops) {
     costing: 'motorcycle',
     alternates: stops.length > 1 ? 0 : 2,
     costing_options: { motorcycle: costingOptions() },
-    directions_options: { language: 'de-DE', units: 'kilometers' },
+    directions_options: { language: settings.navLang || 'de-DE', units: 'kilometers' },
   };
   const res = await fetch(settings.valhalla, {
     method: 'POST',
@@ -280,7 +281,7 @@ export function begin() {
   offRouteCount = 0;
   emit();
   if (settings.navVoice) {
-    speak(`Route gestartet. ${fmtKm(nav.remainingM)}, ${Math.round(nav.remainingS / 60)} Minuten.`);
+    speak(phrases(settings.navLang).routeStarted(fmtKm(nav.remainingM), Math.round(nav.remainingS / 60)));
   }
 }
 
@@ -348,7 +349,7 @@ export function update(lat, lon, speedMs) {
   // Ziel erreicht?
   if (nav.remainingM < 25) {
     nav.state = 'arrived';
-    if (settings.navVoice) speak('Ziel erreicht.');
+    if (settings.navVoice) speak(phrases(settings.navLang).arrived);
     emit();
     return;
   }
@@ -392,7 +393,7 @@ function checkOffRoute(lat, lon, dist) {
   if (++offRouteCount < 3) return;
   if (nav.state !== 'offroute') {
     nav.state = 'offroute';
-    if (settings.navVoice) speak('Route verlassen.');
+    if (settings.navVoice) speak(phrases(settings.navLang).offRoute);
   }
 
   if (!navigator.onLine || !nav.dest) return;

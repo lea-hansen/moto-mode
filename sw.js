@@ -3,7 +3,7 @@
    Moto Mode ohne jede Netzverbindung — GPS-Tacho, Lautstärke-Logik und Ansagen
    brauchen kein Internet. Nur Kartendienste und Spotify tun das. */
 
-const VERSION = 'moto-v9';
+const VERSION = 'moto-v10';
 const TILE_HOSTS = ['tiles.openfreemap.org', 'tiles.versatiles.org'];
 const TILE_CACHE = 'moto-tiles-v1';
 const TILE_LIMIT = 2500;
@@ -18,6 +18,7 @@ const SHELL = [
   'js/limits.js',
   'js/nav.js',
   'js/poi.js',
+  'js/phrases.js',
   'js/overpass.js',
   'js/map.js',
   'vendor/maplibre-gl.js',

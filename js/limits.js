@@ -70,6 +70,9 @@ export function cacheSize() { return Object.keys(cache).length; }
 
 /** Zonen-Schlüssel wie „DE:urban“ — die verlässlichste Quelle nach maxspeed. */
 const ZONES = {
+  'es:urban': { kmh: 50 },      'es:rural': { kmh: 90 },      'es:motorway': { kmh: 120 },
+  'es:trunk': { kmh: 90 },      'es:living_street': { kmh: 20 },
+  'es:zone30': { kmh: 30 },     'es:zone20': { kmh: 20 },     'es:pedestrian': { kmh: 20 },
   'de:urban': { kmh: 50 },      'de:rural': { kmh: 100 },     'de:motorway': { free: true },
   'de:living_street': { kmh: 7 }, 'de:bicycle_road': { kmh: 30 },
   'at:urban': { kmh: 50 },      'at:rural': { kmh: 100 },     'at:motorway': { kmh: 130 },
@@ -79,12 +82,22 @@ const ZONES = {
   'nl:urban': { kmh: 50 },      'nl:rural': { kmh: 80 },      'nl:motorway': { kmh: 100 },
 };
 
-/** Nur eindeutige Straßentypen. Bei primary/secondary hängt das Limit davon ab,
-    ob die Straße innerorts liegt — das wird hier bewusst nicht geraten. */
+/** Vorgaben je Land — nur für eindeutige Straßentypen. Bei primary/secondary
+    hängt das Limit davon ab, ob die Straße innerorts liegt; das wird bewusst
+    nicht geraten. Wichtig: In Spanien gilt auf Autopistas immer 120, es gibt
+    kein unbegrenztes Tempo wie auf deutschen Autobahnen. */
 const BY_TYPE = {
-  motorway: { free: true }, motorway_link: { free: true },
-  living_street: { kmh: 7 },
-  residential: { kmh: 50 },
+  es: {
+    motorway: { kmh: 120 }, motorway_link: { kmh: 120 },
+    trunk: { kmh: 120 }, trunk_link: { kmh: 120 },
+    living_street: { kmh: 20 },
+    residential: { kmh: 30 },        // seit 2021: 30 auf einspurigen Ortsstraßen
+  },
+  de: {
+    motorway: { free: true }, motorway_link: { free: true },
+    living_street: { kmh: 7 },
+    residential: { kmh: 50 },
+  },
 };
 
 function parseMaxspeed(v) {
@@ -101,17 +114,22 @@ function parseMaxspeed(v) {
 
 /** Ortslage aus den Tags. Zone schlägt Straßentyp; bei primary/secondary ohne
     Zone bleibt es offen, weil dieselbe Straße innerorts wie außerorts verläuft. */
-function areaOf(tags) {
+function areaOf(tags, kmh) {
   const hw = tags.highway;
-  if (hw === 'motorway' || hw === 'motorway_link') return 'Autobahn';
+  if (['motorway', 'motorway_link', 'trunk', 'trunk_link'].includes(hw)) return 'Autobahn';
 
   const zone = String(tags['maxspeed:type'] || tags['zone:maxspeed'] || '').toLowerCase();
-  if (zone.endsWith(':urban') || zone.endsWith(':living_street') || zone.endsWith(':zone30')) return 'Innerorts';
+  if (zone.endsWith(':urban') || zone.endsWith(':living_street')
+      || zone.endsWith(':zone30') || zone.endsWith(':zone20')) return 'Innerorts';
   if (zone.endsWith(':rural')) return 'Außerorts';
   if (zone.endsWith(':motorway')) return 'Autobahn';
 
   if (hw === 'residential' || hw === 'living_street') return 'Innerorts';
-  if (hw === 'trunk' || hw === 'trunk_link') return 'Außerorts';
+
+  // In Katalonien fehlt maxspeed:type fast überall, dafür steht maxspeed direkt
+  // am Weg (geprüft an AP-7 und Passeig de Gràcia). 50 und darunter heißt dort
+  // praktisch immer Ortsdurchfahrt.
+  if (kmh != null) return kmh <= 50 ? 'Innerorts' : 'Außerorts';
   return null;
 }
 
@@ -122,7 +140,8 @@ function resolve(tags) {
   const zone = String(tags['maxspeed:type'] || tags['zone:maxspeed'] || '').toLowerCase();
   if (ZONES[zone]) return { ...ZONES[zone], source: 'Zone' };
 
-  const byType = BY_TYPE[tags.highway];
+  const table = BY_TYPE[settings.country] || BY_TYPE.es;
+  const byType = table[tags.highway];
   if (byType) return { ...byType, source: 'Annahme' };
 
   return null;
@@ -211,7 +230,7 @@ async function query(lat, lon, heading) {
         kmh: resolved.kmh ?? null,
         free: !!resolved.free,
         road: tags.name || tags.ref || '',
-        area: areaOf(tags),
+        area: areaOf(tags, resolved.kmh ?? null),
         source: resolved.source || '',
         t: Date.now(),
       };
