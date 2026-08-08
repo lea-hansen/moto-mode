@@ -1,0 +1,285 @@
+/* Abbiegenavigation.
+
+   Route und Ansagetexte kommen von Valhalla mit Motorrad-Kostenmodell; die
+   Ansagen sind dort bereits auf Deutsch formuliert. Alles danach — Position auf
+   die Route projizieren, Restweg, Abstand zum nächsten Manöver, Auslösen der
+   Ansagen, Erkennen einer verlassenen Route — rechnet die App selbst.
+
+   Wichtig: Die Berechnung braucht Netz, das Abfahren nicht. Ist die Route
+   einmal geholt, laufen Führung und Ansagen offline weiter. Wer im Funkloch
+   falsch abbiegt, bekommt allerdings keine neue Route — dafür müsste ein
+   Routing-Graph auf dem Gerät liegen, und der ist zu groß fürs Telefon. */
+
+import { settings } from './store.js';
+import { speak } from './audio.js';
+
+export const nav = {
+  state: 'idle',        // idle | geocoding | routing | active | offroute | arrived | error
+  error: '',
+  dest: null,           // { lat, lon, name }
+  shape: [],            // [[lat, lon], …]
+  maneuvers: [],
+  idx: 0,               // Manöver, auf das gerade zugefahren wird
+  distToTurn: 0,        // Meter
+  remainingM: 0,
+  remainingS: 0,
+  offRouteM: 0,
+};
+
+const listeners = new Set();
+export function onNav(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+function emit() { for (const fn of listeners) fn(nav); }
+
+/* ── Geometrie ─────────────────────────────────────────────────────────── */
+
+/** Valhalla liefert die Streckengeometrie als Polyline mit sechs Nachkommastellen. */
+function decodePolyline(str, precision = 6) {
+  const factor = 10 ** precision;
+  let index = 0, lat = 0, lon = 0;
+  const out = [];
+  while (index < str.length) {
+    let result = 1, shift = 0, b;
+    do { b = str.charCodeAt(index++) - 63 - 1; result += b << shift; shift += 5; } while (b >= 0x1f);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    result = 1; shift = 0;
+    do { b = str.charCodeAt(index++) - 63 - 1; result += b << shift; shift += 5; } while (b >= 0x1f);
+    lon += (result & 1) ? ~(result >> 1) : (result >> 1);
+    out.push([lat / factor, lon / factor]);
+  }
+  return out;
+}
+
+let xy = [];          // Route in Metern, lokal eben projiziert
+let cum = [];         // aufsummierte Länge bis zum jeweiligen Punkt
+let lat0 = 0;
+
+function project(lat, lon) {
+  return [lon * 111320 * Math.cos((lat0 * Math.PI) / 180), lat * 110540];
+}
+
+function prepare() {
+  lat0 = nav.shape.length ? nav.shape[0][0] : 0;
+  xy = nav.shape.map(([la, lo]) => project(la, lo));
+  cum = new Array(xy.length).fill(0);
+  for (let i = 1; i < xy.length; i++) {
+    cum[i] = cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]);
+  }
+}
+
+/** Lotfußpunkt auf einem Streckenabschnitt: Abstand und Anteil t. */
+function projectOnSegment(p, a, b) {
+  const abx = b[0] - a[0], aby = b[1] - a[1];
+  const len = abx * abx + aby * aby;
+  const t = len ? Math.max(0, Math.min(1, ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / len)) : 0;
+  const dx = p[0] - (a[0] + t * abx), dy = p[1] - (a[1] + t * aby);
+  return { dist: Math.hypot(dx, dy), t };
+}
+
+let lastSeg = 0;
+
+/** Position auf die Route setzen — bewusst nur im Fenster um den letzten
+    Treffer. Ein globaler Suchlauf würde bei Routen, die sich kreuzen oder
+    parallel zurückführen, auf einen ganz anderen Abschnitt springen und den
+    Restweg verfälschen. Wer wirklich daneben ist, gilt lieber als „Route
+    verlassen“ und bekommt eine neue Route. */
+function matchToRoute(lat, lon) {
+  const p = project(lat, lon);
+  let best = { dist: Infinity, seg: lastSeg, t: 0 };
+  const from = Math.max(0, lastSeg - 10);
+  const to = Math.min(xy.length - 1, lastSeg + 200);
+  for (let i = from; i < to; i++) {
+    const r = projectOnSegment(p, xy[i], xy[i + 1]);
+    if (r.dist < best.dist) best = { dist: r.dist, seg: i, t: r.t };
+  }
+  lastSeg = best.seg;
+
+  const segLen = cum[best.seg + 1] - cum[best.seg];
+  return { dist: best.dist, along: cum[best.seg] + segLen * best.t, seg: best.seg };
+}
+
+/* ── Route holen ───────────────────────────────────────────────────────── */
+
+/** Kostenmodell aus den Einstellungen. Echtes Kurvenrouting kann Valhalla nicht —
+    „Autobahn meiden“ drückt die Route aber zuverlässig auf Landstraßen. */
+function costingOptions() {
+  const style = settings.routeStyle;
+  if (style === 'avoidHighway') return { use_highways: 0.05, use_tolls: 0.0, use_trails: 0.1 };
+  if (style === 'country') return { use_highways: 0.3, use_tolls: 0.2 };
+  return { use_highways: 1.0, use_tolls: 0.5 };
+}
+
+export async function geocode(query, near) {
+  const params = new URLSearchParams({ q: query, limit: '1', lang: 'de' });
+  if (near) { params.set('lat', String(near.lat)); params.set('lon', String(near.lon)); }
+  const res = await fetch(`${settings.photon}?${params}`);
+  if (!res.ok) throw new Error('Ziel nicht gefunden');
+  const data = await res.json();
+  const f = data.features?.[0];
+  if (!f) throw new Error('Ziel nicht gefunden');
+  const [lon, lat] = f.geometry.coordinates;
+  const p = f.properties || {};
+  return { lat, lon, name: [p.name, p.city || p.town || p.village].filter(Boolean).join(', ') || query };
+}
+
+async function fetchRoute(from, to) {
+  const body = {
+    locations: [{ lat: from.lat, lon: from.lon }, { lat: to.lat, lon: to.lon }],
+    costing: 'motorcycle',
+    costing_options: { motorcycle: costingOptions() },
+    directions_options: { language: 'de-DE', units: 'kilometers' },
+  };
+  const res = await fetch(settings.valhalla, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Routing ${res.status}`);
+  const data = await res.json();
+  const leg = data?.trip?.legs?.[0];
+  if (!leg) throw new Error('Keine Route gefunden');
+  return {
+    shape: decodePolyline(leg.shape),
+    maneuvers: leg.maneuvers || [],
+    length: (data.trip.summary?.length || 0) * 1000,
+    time: data.trip.summary?.time || 0,
+  };
+}
+
+/** Neue Route von der aktuellen Position zum Ziel. */
+export async function start(from, destQuery) {
+  if (!navigator.onLine) { fail('Für die Routenberechnung fehlt die Verbindung'); return; }
+
+  try {
+    nav.state = 'geocoding'; nav.error = ''; emit();
+    const dest = typeof destQuery === 'string' ? await geocode(destQuery, from) : destQuery;
+
+    nav.state = 'routing'; emit();
+    const r = await fetchRoute(from, dest);
+
+    nav.dest = dest;
+    nav.shape = r.shape;
+    nav.maneuvers = r.maneuvers;
+    nav.remainingM = r.length;
+    nav.remainingS = r.time;
+    totalTime = r.time;
+    nav.idx = 1;
+    lastSeg = 0;
+    spoken.clear();
+    prepare();
+
+    nav.state = 'active';
+    emit();
+    if (settings.navVoice) speak(`Route berechnet. ${fmtKm(r.length)}, ${Math.round(r.time / 60)} Minuten.`);
+  } catch (e) {
+    fail(e.message || 'Routing fehlgeschlagen');
+  }
+}
+
+function fail(msg) {
+  nav.state = 'error';
+  nav.error = msg;
+  emit();
+}
+
+export function stop() {
+  nav.state = 'idle';
+  nav.shape = [];
+  nav.maneuvers = [];
+  nav.dest = null;
+  nav.error = '';
+  spoken.clear();
+  emit();
+}
+
+export function isActive() { return nav.state === 'active' || nav.state === 'offroute'; }
+
+/* ── Führung ───────────────────────────────────────────────────────────── */
+
+const spoken = new Set();
+let offRouteCount = 0;
+let lastReroute = 0;
+let totalTime = 0;
+
+function fmtKm(m) {
+  return m >= 10000 ? `${Math.round(m / 1000)} km`
+       : m >= 1000  ? `${(m / 1000).toFixed(1)} km`
+       : `${Math.round(m / 10) * 10} m`;
+}
+export { fmtKm };
+
+/** Wird bei jedem GPS-Fix aufgerufen. */
+export function update(lat, lon, speedMs) {
+  if (!isActive() || xy.length < 2) return;
+
+  const m = matchToRoute(lat, lon);
+  nav.offRouteM = m.dist;
+  nav.remainingM = Math.max(0, cum[cum.length - 1] - m.along);
+
+  // Restzeit über den verbleibenden Streckenanteil — genauer wäre die Summe der
+  // Restmanöver, aber deren Zeiten passen zu einem Motorrad ohnehin nur grob.
+  const total = cum[cum.length - 1] || 1;
+  nav.remainingS = Math.round(totalTime * (nav.remainingM / total));
+
+  // Nächstes Manöver: das erste, dessen Startpunkt noch vor uns liegt.
+  let next = nav.maneuvers.findIndex((mv) => mv.begin_shape_index > m.seg);
+  if (next < 0) next = nav.maneuvers.length - 1;
+  nav.idx = next;
+
+  const turn = nav.maneuvers[next];
+  nav.distToTurn = turn ? Math.max(0, cum[Math.min(turn.begin_shape_index, cum.length - 1)] - m.along) : 0;
+
+  // Ziel erreicht?
+  if (nav.remainingM < 25) {
+    nav.state = 'arrived';
+    if (settings.navVoice) speak('Ziel erreicht.');
+    emit();
+    return;
+  }
+
+  announce(turn, next, speedMs || 0);
+  checkOffRoute(lat, lon, m.dist);
+  emit();
+}
+
+/** Zwei Ansagen je Manöver: früh der Hinweis, kurz davor die Anweisung.
+    Die Auslöseabstände wachsen mit dem Tempo — bei 100 km/h sind 200 m zu spät. */
+function announce(turn, i, speedMs) {
+  if (!turn || !settings.navVoice) return;
+
+  const alertAt = Math.max(300, speedMs * 13);
+  const preAt = Math.max(70, speedMs * 5);
+
+  const alert = turn.verbal_transition_alert_instruction;
+  const pre = turn.verbal_pre_transition_instruction || turn.instruction;
+
+  if (alert && nav.distToTurn <= alertAt && !spoken.has(`a${i}`)) {
+    spoken.add(`a${i}`);
+    speak(alert);
+    return;
+  }
+  if (pre && nav.distToTurn <= preAt && !spoken.has(`p${i}`)) {
+    spoken.add(`p${i}`);
+    spoken.add(`a${i}`);            // Hinweis überspringen, wenn er zu spät käme
+    speak(pre);
+  }
+}
+
+function checkOffRoute(lat, lon, dist) {
+  if (dist < 60) {
+    offRouteCount = 0;
+    if (nav.state === 'offroute') nav.state = 'active';
+    return;
+  }
+
+  // Drei Fixes hintereinander daneben — ein Ausreißer ist noch kein Verfahren.
+  if (++offRouteCount < 3) return;
+  if (nav.state !== 'offroute') {
+    nav.state = 'offroute';
+    if (settings.navVoice) speak('Route verlassen.');
+  }
+
+  if (!navigator.onLine || !nav.dest) return;
+  if (Date.now() - lastReroute < 15000) return;
+  lastReroute = Date.now();
+  start({ lat, lon }, nav.dest);
+}

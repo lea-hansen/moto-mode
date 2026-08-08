@@ -1,0 +1,57 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>audit</title></head>
+<body><pre id="out">läuft…</pre>
+<script>
+/* Prüft jede Geräte-/Modus-Kombination auf Inhalt, der über seine Kachel
+   hinausragt. Das Dashboard darf nirgends scrollen — nur #sheet ist erlaubt. */
+const SIZES = [
+  ['iPhone SE',        375, 667], ['iPhone SE quer',   667, 375],
+  ['iPhone 13 mini',   375, 812], ['iPhone 15',        393, 852],
+  ['iPhone 15 quer',   852, 393], ['iPhone 15 Pro Max',430, 932],
+  ['Pro Max quer',     932, 430],
+];
+const MODES = ['default', 'music', 'route'];
+const out = document.getElementById('out');
+const lines = [];
+
+const frame = document.createElement('iframe');
+frame.style.cssText = 'position:absolute;left:-9999px;border:0';
+document.body.appendChild(frame);
+
+function audit(doc) {
+  const bad = [];
+  for (const el of doc.querySelectorAll('*')) {
+    if (el.closest('#sheet')) continue;
+    if (!el.clientHeight && !el.clientWidth) continue;
+    const ox = el.scrollWidth - el.clientWidth, oy = el.scrollHeight - el.clientHeight;
+    if (ox > 1 || oy > 1) bad.push(`${el.id ? '#' + el.id : (el.className ? '.' + String(el.className).split(' ')[0] : el.tagName.toLowerCase())}(+${ox}x,+${oy}y)`);
+  }
+  return bad;
+}
+
+function load(w, h) {
+  return new Promise((res) => {
+    frame.width = w; frame.height = h;
+    frame.onload = () => setTimeout(() => res(frame.contentDocument), 250);
+    frame.src = '../index.html?cb=' + Math.random();
+  });
+}
+
+(async () => {
+  let fails = 0;
+  for (const [name, w, h] of SIZES) {
+    const doc = await load(w, h);
+    for (const mode of MODES) {
+      // Über die echten Bedienelemente umschalten, nicht über ein Attribut —
+      // so wird der Weg geprüft, den auch der Finger nimmt.
+      if (mode !== 'default') doc.querySelector(`[data-open="${mode}"]`)?.click();
+      else doc.querySelector('#panelPlayer [data-open="default"], #panelRoute [data-open="default"]')?.click();
+      await new Promise((r) => setTimeout(r, 150));
+      const bad = audit(doc);
+      if (bad.length) fails++;
+      lines.push(`${bad.length ? 'FAIL' : 'ok  '}  ${name.padEnd(20)} ${String(w).padStart(4)}x${h}  ${mode.padEnd(6)} ${bad.join(' ')}`);
+    }
+  }
+  lines.push('', fails ? `ERGEBNIS: ${fails} Kombination(en) mit Ueberlauf` : 'ERGEBNIS: alle Kombinationen ohne Ueberlauf');
+  out.textContent = lines.join('\n');
+})();
+</script></body></html>

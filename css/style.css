@@ -1,0 +1,325 @@
+/* ==========================================================================
+   Moto Mode — flaches Apple-Design, kein Blur, kein Glass.
+
+   Aufbau: Links 2/3 der große Bereich, rechts 1/3 geteilt in Tempolimit (oben,
+   ein Drittel) und Musik (unten, zwei Drittel). Der große Bereich tauscht
+   zwischen Navigation, Wiedergabe und Route; das Tempolimit bleibt fest.
+
+   Layoutregel: Nichts scrollt außer dem Setup. Bedienelemente wachsen und
+   schrumpfen über Flex/Grid, Schriftgrößen hängen per Container-Query an ihrem
+   Bereich statt am Fenster.
+   ========================================================================== */
+
+:root{
+  --bg:#000000;
+  --tile:#1C1C1E;
+  --tile-2:#2C2C2E;
+  --tile-3:#3A3A3C;
+  --sep:#38383A;
+  --fg:#FFFFFF;
+  --fg-2:#AEAEB2;
+  --fg-3:#8E8E93;
+  --blue:#0A84FF;
+  --green:#30D158;
+  --orange:#FF9F0A;
+  --red:#FF453A;
+  --r:16px;
+  --gap:8px;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);overscroll-behavior:none}
+body{
+  color:var(--fg);
+  font:600 17px/1.15 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+  -webkit-user-select:none;user-select:none;-webkit-text-size-adjust:100%;
+  touch-action:manipulation;overflow:hidden;
+}
+button,input,select{font:inherit;color:inherit;border:0;background:none;outline:none;appearance:none;-webkit-appearance:none;text-align:inherit}
+b,i{font-style:normal}
+#panels[hidden]{display:none}
+
+#app{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  transition:opacity .25s;
+}
+#app[data-dim="1"]{opacity:.5}
+
+/* ── Statusleiste ─────────────────────────────────────────────────────── */
+.statusbar{
+  flex:0 0 34px;display:flex;align-items:center;gap:10px;
+  padding:0 4px 0 14px;font-size:12px;color:var(--fg-3);
+}
+.clock{font-variant-numeric:tabular-nums;color:var(--fg-2)}
+.speed-chip{font-size:14px;font-weight:700;color:var(--fg-2);font-variant-numeric:tabular-nums}
+.chips{display:flex;gap:5px;margin-left:auto}
+.pill{padding:2px 7px;border-radius:5px;font-size:10px;letter-spacing:.06em;background:var(--tile);color:var(--fg-3)}
+.pill[hidden]{display:none}
+.pill[data-state="ok"]{background:#30D15826;color:var(--green)}
+.pill[data-state="warn"]{background:#FF9F0A26;color:var(--orange)}
+.gear{
+  width:44px;height:34px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;
+  font-size:19px;color:var(--fg-3);border-radius:8px;
+}
+.gear:active{background:var(--tile)}
+
+/* ── Raster ───────────────────────────────────────────────────────────── */
+.grid{
+  flex:1;min-height:0;display:grid;gap:var(--gap);padding:var(--gap);
+  grid-template-columns:2fr minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr) minmax(0,2fr);
+  grid-template-areas:"main limit" "main side";
+}
+#mainSlot{grid-area:main}
+#limitTile{grid-area:limit}
+#sideSlot{grid-area:side}
+
+/* Hochformat: dieselben drei Bereiche gestapelt, gleiche Gewichtung. */
+@media (orientation:portrait){
+  .grid{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:minmax(0,.85fr) minmax(0,1.5fr) minmax(0,1.25fr);
+    grid-template-areas:"limit" "main" "side";
+  }
+}
+
+.tile{
+  background:var(--tile);border-radius:var(--r);
+  display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;
+}
+
+/* ── Tempolimit ───────────────────────────────────────────────────────────
+   Das Schild bricht bewusst mit der dunklen Palette: Weiß auf Rot mit
+   schwarzer Ziffer ist bei direkter Sonne am schnellsten erfassbar. */
+.limit{
+  align-items:center;justify-content:center;gap:6px;padding:8px 10px;
+  container-type:size;
+}
+.sign{
+  width:min(46cqw,50cqh);aspect-ratio:1;flex:0 0 auto;border-radius:50%;
+  background:#fff;border:min(4cqw,4.4cqh) solid var(--red);
+  display:flex;align-items:center;justify-content:center;
+}
+.sign-num{
+  color:#000;font-weight:700;letter-spacing:-.05em;line-height:1.2;
+  font-size:min(20cqw,22cqh);font-variant-numeric:tabular-nums;
+}
+.sign[data-state="unknown"]{background:var(--tile-2);border-color:var(--tile-3)}
+.sign[data-state="unknown"] .sign-num{color:var(--fg-3)}
+.sign[data-state="free"]{border-color:#48484A}
+.sign[data-state="free"] .sign-num{font-size:min(12cqw,13cqh);letter-spacing:0}
+
+.area{
+  font-size:clamp(13px,5cqw,26px);font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--fg);white-space:nowrap;
+}
+.area[data-src="none"]{color:var(--fg-3)}
+.area[data-src="tempo"]{color:var(--fg-2)}      /* nur aus dem Tempo abgeleitet */
+.limit-sub{
+  font-size:clamp(10px,3cqw,15px);font-weight:600;color:var(--fg-3);
+  text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.limit[data-warn="1"]{background:#3A1416}
+.limit[data-warn="1"] .limit-sub{color:#FF8A80}
+
+/* ── Bereiche ─────────────────────────────────────────────────────────── */
+.slot{container-type:size}
+.panel{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.panel-head{
+  flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;border-bottom:1px solid var(--sep);
+  font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3);
+}
+.panel-head:active{background:var(--tile-2)}
+.head-hint{color:var(--blue);letter-spacing:.04em}
+.panel-body{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--gap);padding:var(--gap);overflow:hidden}
+
+.btn{
+  border-radius:14px;background:var(--tile-2);color:var(--fg);
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  font-size:clamp(15px,4.5cqw,24px);font-weight:600;padding:0 12px;min-width:0;
+  transition:transform .06s,background .12s;
+}
+.btn:active{transform:scale(.97);background:var(--tile-3)}
+.btn.primary{background:var(--blue)}
+.btn.primary:active{background:#0071e3}
+
+/* Navigation: Abbiegebanner oben, Karte in der Mitte, Tastenzeile unten. */
+.nav-body{gap:6px}
+.turn{
+  flex:0 0 auto;display:flex;align-items:center;gap:14px;
+  background:var(--tile-2);border-radius:13px;padding:6px 14px;
+  min-height:clamp(52px,15cqh,84px);
+}
+.turn[hidden]{display:none}
+.turn-arrow{font-size:clamp(26px,7cqw,46px);line-height:1;color:var(--blue);flex:0 0 auto}
+.turn-info{display:flex;flex-direction:column;min-width:0;gap:1px}
+.turn-info b{font-size:clamp(19px,5cqw,34px);font-variant-numeric:tabular-nums;line-height:1.1}
+.turn-info i{
+  font-size:clamp(11px,2.8cqw,19px);font-weight:500;color:var(--fg-3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.turn[data-off="1"]{background:#3A1416}
+.turn[data-off="1"] .turn-arrow{color:var(--red)}
+
+.map{flex:1;min-height:0;border-radius:12px;overflow:hidden;background:var(--tile-2)}
+/* Eigene Position: flacher Pfeil, keine Schatten oder Verläufe. */
+.me{
+  width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;
+  border-bottom:24px solid var(--blue);
+}
+.map{position:relative}
+.map-attrib{
+  position:absolute;right:6px;bottom:4px;z-index:2;pointer-events:none;
+  font-size:9px;font-weight:600;color:#00000099;
+}
+.maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-top-left,.maplibregl-ctrl-top-right{display:none}
+
+.nav-row{flex:0 0 auto;display:flex;gap:var(--gap);height:clamp(50px,15cqh,74px)}
+.nav-row[hidden]{display:none}
+.nav-row .btn{flex:1 1 0}
+.btn.go{flex:2 1 0;background:var(--blue);font-weight:700;letter-spacing:.06em}
+.btn.go[disabled]{background:var(--tile-2);color:var(--fg-3)}
+.btn.stop{flex:0 0 auto;padding:0 clamp(16px,5cqw,34px);background:var(--red);font-weight:700;letter-spacing:.06em}
+.launch{justify-content:center;padding:0}
+.nav-sum{
+  flex:1;display:flex;align-items:center;padding:0 4px;min-width:0;
+  font-size:clamp(14px,3.4cqw,24px);font-weight:700;font-variant-numeric:tabular-nums;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.glyph{
+  width:clamp(28px,6cqw,44px);height:clamp(28px,6cqw,44px);flex:0 0 auto;border-radius:9px;
+  background:var(--tile-3);display:flex;align-items:center;justify-content:center;
+  font-size:clamp(14px,3.4cqw,22px);font-weight:700;color:var(--fg-2);
+}
+
+/* Musik: sechs gleich große Ziele, mehr nicht */
+.pad{
+  flex:1;min-height:0;display:grid;gap:var(--gap);
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-template-rows:repeat(2,minmax(0,1fr));
+}
+.pad-btn{min-height:44px;font-size:clamp(16px,5.5cqw,30px);letter-spacing:.02em}
+.pad-btn b{font-size:clamp(13px,4cqw,22px);font-weight:700}
+#btnMute[data-on="1"]{background:var(--red)}
+#btnVolDown,#btnVolUp{font-size:clamp(22px,7cqw,38px);font-weight:400}
+
+.meter{
+  flex:0 0 clamp(20px,7cqh,30px);border-radius:8px;background:var(--tile-2);
+  position:relative;overflow:hidden;display:flex;align-items:center;
+}
+.meter-fill{position:absolute;inset:0 auto 0 0;width:70%;background:var(--blue);transition:width .12s}
+.meter[data-muted="1"] .meter-fill{background:var(--tile-3)}
+.meter[data-auto="1"] .meter-fill{background:var(--green)}
+.meter-txt{
+  position:relative;margin-left:auto;padding-right:10px;
+  font-size:11px;font-weight:700;color:var(--fg);font-variant-numeric:tabular-nums;
+}
+
+/* Wiedergabe (großer Bereich) */
+.player{gap:clamp(6px,2cqh,16px)}
+.np{flex:0 0 auto;min-width:0}
+.np-title{font-size:clamp(20px,6cqw,44px);font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np-artist{font-size:clamp(14px,3.4cqw,24px);font-weight:500;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.pl-label{flex:0 0 auto;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3)}
+.pl-list{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--gap)}
+.pl-item{
+  flex:1 1 0;min-height:0;border-radius:14px;background:var(--tile-2);
+  display:flex;align-items:center;gap:14px;padding:0 clamp(12px,3cqw,22px);min-width:0;
+}
+.pl-item:active{background:var(--tile-3)}
+.pl-num{
+  width:clamp(26px,4cqw,38px);height:clamp(26px,4cqw,38px);flex:0 0 auto;border-radius:9px;
+  background:var(--tile-3);display:flex;align-items:center;justify-content:center;
+  font-size:clamp(13px,2.6cqw,18px);font-weight:700;color:var(--fg-3);
+}
+.pl-text{min-width:0;display:flex;flex-direction:column;gap:1px}
+.pl-name{font-size:clamp(15px,3.4cqw,24px);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-meta{font-size:clamp(11px,2.2cqw,15px);font-weight:500;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-empty{
+  flex:1;display:flex;align-items:center;justify-content:center;text-align:center;
+  font-size:clamp(13px,2.8cqw,18px);font-weight:500;color:var(--fg-3);padding:0 20px;
+}
+
+/* Ist der Bereich flach, weicht zuerst die Überschrift — die Zeilen bleiben. */
+@container (max-height:250px){
+  .pl-label{display:none}
+}
+
+/* Route */
+.route{gap:clamp(4px,1.6cqh,14px)}
+.route-road{font-size:clamp(20px,6cqw,46px);font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 auto}
+.route-sub{font-size:clamp(12px,3cqw,20px);font-weight:600;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 auto}
+.route-grid{
+  flex:1;min-height:0;display:grid;gap:var(--gap);
+  grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));
+}
+.stat{
+  border-radius:12px;background:var(--tile-2);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;min-width:0;padding:4px;
+}
+.stat b{font-size:clamp(17px,4.4cqw,34px);font-variant-numeric:tabular-nums}
+.stat i{font-size:clamp(9px,1.8cqw,13px);letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
+.route-dest{
+  flex:0 0 auto;font-size:clamp(12px,2.8cqw,19px);font-weight:600;color:var(--fg-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.route-dest:empty{display:none}
+
+/* ── Setup (einziger scrollbarer Bereich) ─────────────────────────────── */
+.sheet{
+  position:fixed;inset:0;background:var(--bg);z-index:50;display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);visibility:hidden;
+}
+.sheet.open{transform:none;visibility:visible}
+.sheet-head{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:12px 16px}
+.sheet-head h1{font-size:26px;font-weight:700;letter-spacing:-.02em}
+.sheet-close{height:54px;padding:0 26px;font-size:18px}
+.sheet-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px 40px}
+.sheet-body h2{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin:22px 0 7px 4px}
+.group{background:var(--tile);border-radius:13px;overflow:hidden}
+.row{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:62px;padding:10px 16px;font-size:17px;font-weight:500;width:100%;
+}
+.row + .row{border-top:1px solid var(--sep)}
+.row.col{flex-direction:column;align-items:stretch;gap:8px}
+.row.col > span{font-size:13px;color:var(--fg-3);letter-spacing:.03em;display:flex;justify-content:space-between}
+.row.col > span b{color:var(--fg-2);font-variant-numeric:tabular-nums}
+.row.col input{height:52px;border-radius:11px;background:var(--tile-2);padding:0 14px;font-size:16px;-webkit-user-select:text;user-select:text}
+.row.col code{
+  min-height:52px;border-radius:11px;background:var(--tile-2);padding:13px;
+  font-size:14px;font-family:ui-monospace,Menlo,monospace;color:var(--fg-2);
+  line-height:1.35;word-break:break-all;-webkit-user-select:text;user-select:text;
+}
+.as-btn{color:var(--blue);font-weight:600;cursor:pointer}
+.as-btn:active{background:var(--tile-2)}
+.danger-text{color:var(--red)}
+.num{display:flex;align-items:center;gap:8px;color:var(--fg-3);font-size:14px;flex:0 0 auto}
+.num input{width:100px;height:52px;border-radius:11px;background:var(--tile-2);text-align:center;font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+.row select{height:52px;border-radius:11px;background:var(--tile-2);padding:0 14px;font-size:17px;font-weight:600;flex:0 0 auto}
+.sw{width:62px;height:36px;flex:0 0 62px;border-radius:18px;background:var(--tile-3);position:relative;transition:background .18s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:30px;height:30px;border-radius:15px;background:#fff;transition:transform .18s}
+.sw:checked{background:var(--green)}
+.sw:checked::after{transform:translateX(26px)}
+.foot-note{margin-top:26px;font-size:12px;font-weight:500;line-height:1.45;color:var(--fg-3)}
+
+/* Regler im Setup */
+.vol-row{display:flex;gap:8px;height:56px}
+.step{
+  width:64px;flex:0 0 64px;border-radius:12px;background:var(--tile-2);
+  font-size:26px;font-weight:400;color:var(--fg-2);display:flex;align-items:center;justify-content:center;
+}
+.step:active{background:var(--tile-3)}
+.bar{flex:1;min-width:0;border-radius:12px;background:var(--tile-2);position:relative;overflow:hidden;touch-action:none}
+.bar .fill{position:absolute;inset:0 auto 0 0;width:70%;background:var(--blue)}
+.bar .knob{position:absolute;top:12px;bottom:12px;width:4px;border-radius:2px;background:#fff;left:70%;margin-left:-8px;opacity:.9}
+
+/* Sehr flache Ansichten (iPhone im Querformat) */
+@media (max-height:440px){
+  .statusbar{flex-basis:28px}
+  .panel-head{flex-basis:36px}
+}

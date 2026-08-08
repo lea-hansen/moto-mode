@@ -1,0 +1,182 @@
+/* Audio-Engine für die App-eigene Wiedergabe.
+   Wichtig für iOS: `HTMLAudioElement.volume` ist auf iPhones schreibgeschützt.
+   Echte Lautstärkeregelung geht nur über einen Web-Audio-GainNode — genau das
+   passiert hier. Deshalb läuft alle Musik durch den Graph
+   <audio> → MediaElementSource → gain → destination. */
+
+import { settings, pushRecent } from './store.js';
+
+const el = document.getElementById('player');
+
+let ctx = null;
+let gain = null;
+let ducking = false;
+
+export const audio = {
+  playing: false,
+  tracks: [],
+  index: -1,
+  title: '',
+  artist: '',
+};
+
+const listeners = new Set();
+export function onAudio(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+function emit() { for (const fn of listeners) fn(audio); }
+
+/* ── Graph ─────────────────────────────────────────────────────────────── */
+
+/** Muss aus einer Nutzergeste heraus aufgerufen werden (iOS-Autoplay-Policy). */
+export function unlock() {
+  if (!ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    try {
+      ctx = new AC();
+      gain = ctx.createGain();
+      gain.gain.value = targetGain();
+      ctx.createMediaElementSource(el).connect(gain);
+      gain.connect(ctx.destination);
+    } catch {
+      ctx = null; gain = null;
+      return false;
+    }
+  }
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  // SpeechSynthesis auf iOS ebenfalls einmalig freischalten.
+  if ('speechSynthesis' in window && !unlock.spoke) {
+    unlock.spoke = true;
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    try { speechSynthesis.speak(u); } catch {}
+  }
+  return true;
+}
+
+let autoFactor = 1;
+
+function targetGain() {
+  if (settings.muted) return 0;
+  let g = settings.mediaVol * autoFactor;
+  if (ducking) g *= 1 - settings.duck;
+  return Math.max(0, Math.min(1.5, g));
+}
+
+function applyGain(fast = false) {
+  const t = targetGain();
+  if (gain && ctx) {
+    gain.gain.setTargetAtTime(t, ctx.currentTime, fast ? 0.02 : 0.12);
+  } else {
+    // Fallback für Plattformen ohne Web Audio (auf iOS wirkungslos).
+    try { el.volume = Math.min(1, t); } catch {}
+  }
+}
+
+/** Faktor der Geschwindigkeits-Automatik (1 = neutral). */
+export function setAutoFactor(f) {
+  if (Math.abs(f - autoFactor) < 0.001) return;
+  autoFactor = f;
+  applyGain();
+}
+export function getAutoFactor() { return autoFactor; }
+
+export function refreshGain(fast) { applyGain(fast); }
+
+/* ── Transport ─────────────────────────────────────────────────────────── */
+
+export function loadFiles(fileList) {
+  const files = Array.from(fileList).filter((f) => f.type.startsWith('audio/') || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
+  if (!files.length) return 0;
+  audio.tracks.forEach((t) => URL.revokeObjectURL(t.url));
+  audio.tracks = files.map((f) => ({
+    url: URL.createObjectURL(f),
+    title: f.name.replace(/\.[^.]+$/, ''),
+    artist: 'Lokale Datei',
+  }));
+  audio.index = -1;
+  pushRecent({
+    kind: 'local',
+    name: audio.tracks[0].title,
+    meta: `${audio.tracks.length} Titel · lokal`,
+  });
+  select(0, false);
+  return audio.tracks.length;
+}
+
+function select(i, autoplay = true) {
+  if (!audio.tracks.length) return;
+  audio.index = (i + audio.tracks.length) % audio.tracks.length;
+  const t = audio.tracks[audio.index];
+  audio.title = t.title;
+  audio.artist = `${t.artist} · ${audio.index + 1}/${audio.tracks.length}`;
+  el.src = t.url;
+  updateMediaSession();
+  emit();
+  if (autoplay) play();
+}
+
+export function play() {
+  if (!audio.tracks.length) return;
+  unlock();
+  el.play().then(() => { audio.playing = true; emit(); }).catch(() => {});
+}
+
+export function pause() {
+  el.pause();
+  audio.playing = false;
+  emit();
+}
+
+export function toggle() { audio.playing ? pause() : play(); }
+export function next() { select(audio.index + 1); }
+export function prev() {
+  if (el.currentTime > 4) { el.currentTime = 0; return; }
+  select(audio.index - 1);
+}
+
+el.addEventListener('ended', () => next());
+el.addEventListener('play', () => { audio.playing = true; emit(); });
+el.addEventListener('pause', () => { audio.playing = false; emit(); });
+
+/* ── Ansagen (TTS) mit Ducking ─────────────────────────────────────────── */
+
+let duckTimer = null;
+
+export function speak(text) {
+  if (!('speechSynthesis' in window) || !text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'de-DE';
+  u.volume = settings.voiceVol;
+  u.rate = 1.05;
+
+  duckOn();
+  u.onend = duckOff;
+  u.onerror = duckOff;
+  try { speechSynthesis.speak(u); } catch { duckOff(); }
+
+  // Sicherheitsnetz: Falls onend auf iOS ausbleibt, spätestens nach 8 s lösen.
+  clearTimeout(duckTimer);
+  duckTimer = setTimeout(duckOff, 8000);
+}
+
+function duckOn() { ducking = true; applyGain(true); }
+function duckOff() { clearTimeout(duckTimer); ducking = false; applyGain(); }
+
+/* ── Sperrbildschirm / AirPods-Tasten ──────────────────────────────────── */
+
+function updateMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: audio.title || 'Moto Mode',
+    artist: audio.artist || '',
+    album: 'Moto Mode',
+  });
+}
+
+if ('mediaSession' in navigator) {
+  const set = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
+  set('play', play);
+  set('pause', pause);
+  set('nexttrack', next);
+  set('previoustrack', prev);
+}

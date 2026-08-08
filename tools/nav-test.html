@@ -1,0 +1,39 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><pre id="out">…</pre>
+<audio id="player"></audio>
+<script type="module">
+import * as N from '../js/nav.js';
+import { nav } from '../js/nav.js';
+const out=document.getElementById('out'); const L=[];
+// Ansagen abfangen statt sprechen
+const spoken=[];
+window.speechSynthesis && (speechSynthesis.speak = (u)=>spoken.push(u.text));
+
+(async()=>{
+  const from={lat:50.3350,lon:6.9470};
+  await N.start(from, 'Adenau');
+  L.push(`Status: ${nav.state}  ${nav.error||''}`);
+  if(nav.state!=='active'){ out.textContent=L.join('\n'); return; }
+  L.push(`Ziel: ${nav.dest.name}  (${nav.dest.lat.toFixed(4)}, ${nav.dest.lon.toFixed(4)})`);
+  L.push(`Punkte: ${nav.shape.length}, Manöver: ${nav.maneuvers.length}, Länge: ${(nav.remainingM/1000).toFixed(1)} km, ${Math.round(nav.remainingS/60)} min`);
+
+  // Entlang der eigenen Route fahren und mitschreiben
+  const pts=nav.shape;
+  const steps=[0, .1, .25, .5, .75, .95].map(f=>pts[Math.floor(f*(pts.length-1))]);
+  for(const [la,lo] of steps){
+    N.update(la, lo, 22);
+    const t=nav.maneuvers[nav.idx];
+    L.push(`  bei ${la.toFixed(4)},${lo.toFixed(4)}: Rest ${N.fmtKm(nav.remainingM)}, nächstes Manöver in ${N.fmtKm(nav.distToTurn)} (${t?.type}) "${(t?.street_names||[]).join(', ')}", Abstand zur Route ${nav.offRouteM.toFixed(1)} m`);
+  }
+
+  // Absichtlich daneben: 300 m quer versetzt
+  const mid=pts[Math.floor(pts.length/2)];
+  N.update(mid[0], mid[1], 22);
+  L.push(`Zurück auf Route: Status=${nav.state}, Abstand ${nav.offRouteM.toFixed(0)} m`);
+  for(let i=0;i<3;i++) N.update(mid[0]+0.0035, mid[1]+0.0035, 22);
+  L.push(`Nach ~450 m Versatz: Status=${nav.state}, Abstand ${nav.offRouteM.toFixed(0)} m`);
+
+  L.push(`Ansagen ausgelöst: ${spoken.length}`);
+  spoken.slice(0,4).forEach(t=>L.push('   • '+t));
+  out.textContent=L.join('\n');
+})();
+</script></body></html>

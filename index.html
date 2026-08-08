@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Moto Mode</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Moto Mode">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="css/style.css">
+<script src="vendor/maplibre-gl.js"></script>
+</head>
+<body>
+
+<div id="app" data-view="default">
+
+  <header class="statusbar">
+    <span class="clock" id="clock">--:--</span>
+    <span class="speed-chip" id="speedChip">– km/h</span>
+    <span class="chips">
+      <span class="pill" id="pillGps" data-state="warn">GPS</span>
+      <span class="pill" id="pillWake" data-state="warn" hidden>DISPLAY</span>
+      <span class="pill" id="pillNet" data-state="off" hidden>OFFLINE</span>
+    </span>
+    <button class="gear" id="btnSettings" aria-label="Setup">⚙</button>
+  </header>
+
+  <main class="grid">
+    <!-- Bleibt fest oben rechts und ist bewusst nicht antippbar. -->
+    <section class="tile limit" id="limitTile">
+      <div class="sign" id="sign" data-state="unknown"><span class="sign-num" id="limitNum">—</span></div>
+      <div class="area" id="areaTxt" data-src="none">—</div>
+      <div class="limit-sub" id="limitSub">warte auf Position</div>
+    </section>
+
+    <section class="tile slot slot-main" id="mainSlot"></section>
+    <section class="tile slot slot-side" id="sideSlot"></section>
+  </main>
+</div>
+
+<!-- Die vier Bereiche liegen hier und werden per JS in die Plätze gehängt. -->
+<div id="panels" hidden>
+
+  <section class="panel" id="panelNav">
+    <button class="panel-head" data-open="route">
+      <span>Navigation</span><span class="head-hint">ROUTE ›</span>
+    </button>
+    <div class="panel-body nav-body">
+      <div class="turn" id="turnBanner" hidden>
+        <span class="turn-arrow" id="turnArrow">↑</span>
+        <span class="turn-info">
+          <b id="turnDist">—</b>
+          <i id="turnStreet">—</i>
+        </span>
+      </div>
+      <div class="map" id="map">
+        <span class="map-attrib">© OpenStreetMap · OpenFreeMap</span>
+      </div>
+      <div class="nav-row" id="navIdle">
+        <button class="btn go" id="btnGo">ROUTE</button>
+        <button class="btn launch" data-app="apple" aria-label="Apple Karten"><span class="glyph"></span></button>
+        <button class="btn launch" data-app="google" aria-label="Google Maps"><span class="glyph">G</span></button>
+        <button class="btn launch" data-app="calimoto" aria-label="calimoto"><span class="glyph">C</span></button>
+      </div>
+      <div class="nav-row" id="navRun" hidden>
+        <span class="nav-sum" id="navSum">—</span>
+        <button class="btn stop" id="btnNavStop">STOPP</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panelMusic">
+    <button class="panel-head" data-open="music">
+      <span id="musicHead">Musik</span><span class="head-hint">›</span>
+    </button>
+    <div class="panel-body">
+      <div class="pad">
+        <button class="btn pad-btn" id="btnPrev" aria-label="Vorheriges Lied">◀◀</button>
+        <button class="btn pad-btn primary" id="btnPlay" aria-label="Play/Pause">▶</button>
+        <button class="btn pad-btn" id="btnNext" aria-label="Nächstes Lied">▶▶</button>
+        <button class="btn pad-btn" id="btnMute" aria-label="Stumm"><b id="muteLabel">MUTE</b></button>
+        <button class="btn pad-btn" id="btnVolDown" aria-label="Leiser">–</button>
+        <button class="btn pad-btn" id="btnVolUp" aria-label="Lauter">+</button>
+      </div>
+      <div class="meter"><div class="meter-fill" id="volFill"></div><span class="meter-txt" id="volTxt">70%</span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panelPlayer">
+    <button class="panel-head" data-open="default">
+      <span>Wiedergabe</span><span class="head-hint">‹ zurück</span>
+    </button>
+    <div class="panel-body player">
+      <div class="np">
+        <div class="np-title" id="npTitle">Keine Wiedergabe</div>
+        <div class="np-artist" id="npArtist">Quelle im Setup wählen</div>
+      </div>
+      <div class="pl-label">Zuletzt gehört</div>
+      <div class="pl-list" id="plList"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panelRoute">
+    <button class="panel-head" data-open="default">
+      <span>Route</span><span class="head-hint">‹ zurück</span>
+    </button>
+    <div class="panel-body route">
+      <div class="route-road" id="routeRoad">—</div>
+      <div class="route-sub" id="routeSub">warte auf Position</div>
+      <div class="route-grid">
+        <span class="stat"><b id="rDist">0.0</b><i>km gefahren</i></span>
+        <span class="stat"><b id="rTime">0:00</b><i>fahrzeit</i></span>
+        <span class="stat"><b id="rAvg">0</b><i>ø km/h</i></span>
+        <span class="stat"><b id="rMax">0</b><i>max km/h</i></span>
+        <span class="stat"><b id="rHead">--</b><i>kurs</i></span>
+        <span class="stat"><b id="rAcc">--</b><i>gps</i></span>
+      </div>
+      <div class="route-dest" id="routeDest"></div>
+    </div>
+  </section>
+</div>
+
+<!-- ── Setup: das Einzige, was scrollen darf. Bedienung im Stand. ── -->
+<section class="sheet" id="sheet" aria-hidden="true">
+  <header class="sheet-head">
+    <h1>Setup</h1>
+    <button class="btn primary sheet-close" id="sheetClose">Fertig</button>
+  </header>
+  <div class="sheet-body">
+
+    <h2>Ziel</h2>
+    <div class="group">
+      <label class="row col"><span>Ziel für die Navi-Apps</span>
+        <input type="text" id="destInput" placeholder="Adresse oder Ort" autocomplete="off" autocorrect="off" spellcheck="false">
+      </label>
+    </div>
+
+    <h2>Navigation</h2>
+    <div class="group">
+      <label class="row"><span>Routenart</span>
+        <select id="setRouteStyle">
+          <option value="fast">Schnell</option>
+          <option value="country">Landstraße bevorzugen</option>
+          <option value="avoidHighway">Autobahn meiden</option>
+        </select>
+      </label>
+      <label class="row"><span>Abbiegeansagen</span><input type="checkbox" class="sw" id="setNavVoice"></label>
+      <label class="row"><span>Karte in Fahrtrichtung</span><input type="checkbox" class="sw" id="setCourseUp"></label>
+      <label class="row"><span>Kartenstil</span>
+        <select id="setMapStyle">
+          <option value="positron">Hell, kontrastreich</option>
+          <option value="liberty">Farbig</option>
+          <option value="bright">Hell, detailliert</option>
+          <option value="dark">Dunkel</option>
+        </select>
+      </label>
+      <label class="row col"><span>Routing-Endpunkt (Valhalla)</span>
+        <input type="text" id="setValhalla" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+      <label class="row col"><span>Zielsuche (Photon)</span>
+        <input type="text" id="setPhoton" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+    </div>
+
+    <h2>Musikquelle</h2>
+    <div class="group">
+      <label class="row"><span>Quelle</span>
+        <select id="setSource"><option value="local">Lokale Titel</option><option value="spotify">Spotify</option></select>
+      </label>
+      <label class="row as-btn file">Titel vom iPhone laden
+        <input type="file" id="filePick" accept="audio/*" multiple hidden>
+      </label>
+      <button class="row as-btn" id="btnTestVoice">Ansage testen</button>
+    </div>
+
+    <h2>Ansagen</h2>
+    <div class="group">
+      <div class="row col"><span>Ansage-Lautstärke <b id="valVoice">100%</b></span>
+        <div class="vol-row">
+          <button class="step" data-vol="voice" data-step="-0.05" aria-label="Ansage leiser">–</button>
+          <div class="bar" data-bar="voice" role="slider" tabindex="0"
+               aria-label="Ansage-Lautstärke" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+            <div class="fill"></div><div class="knob"></div>
+          </div>
+          <button class="step" data-vol="voice" data-step="0.05" aria-label="Ansage lauter">+</button>
+        </div>
+      </div>
+      <div class="row col"><span>Musik absenken bei Ansage <b id="valDuck">60%</b></span>
+        <div class="vol-row">
+          <button class="step" data-vol="duck" data-step="-0.05" aria-label="weniger absenken">–</button>
+          <div class="bar" data-bar="duck" role="slider" tabindex="0"
+               aria-label="Absenkung" aria-valuemin="0" aria-valuemax="100" aria-valuenow="60">
+            <div class="fill"></div><div class="knob"></div>
+          </div>
+          <button class="step" data-vol="duck" data-step="0.05" aria-label="mehr absenken">+</button>
+        </div>
+      </div>
+    </div>
+
+    <h2>Anzeige</h2>
+    <div class="group">
+      <label class="row"><span>Einheit</span>
+        <select id="setUnit"><option value="kmh">km/h</option><option value="mph">mph</option></select>
+      </label>
+      <label class="row"><span>Display wach halten</span><input type="checkbox" class="sw" id="setWake"></label>
+      <label class="row"><span>Helligkeit dämpfen</span><input type="checkbox" class="sw" id="setDim"></label>
+      <label class="row"><span>Auto-Rücksprung</span>
+        <span class="num"><input type="number" id="setBack" min="0" max="60" step="1"> <i>s</i></span>
+      </label>
+    </div>
+
+    <h2>Tempolimit</h2>
+    <div class="group">
+      <label class="row"><span>Limit abrufen (braucht Netz)</span><input type="checkbox" class="sw" id="setLimits"></label>
+      <label class="row"><span>Warnen bei Überschreitung</span><input type="checkbox" class="sw" id="setWarn"></label>
+      <label class="row"><span>Toleranz</span><span class="num"><input type="number" id="setTol" min="0" max="30" step="1"> <i>km/h</i></span></label>
+      <label class="row col"><span>Overpass-Endpunkt</span>
+        <input type="text" id="setOverpass" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+      <button class="row as-btn" id="btnLimitCache">Limit-Cache leeren (<span id="limitCacheCount">0</span> Zellen)</button>
+    </div>
+
+    <h2>Smart Volume</h2>
+    <div class="group">
+      <label class="row"><span>Automatik aktiv</span><input type="checkbox" class="sw" id="setSmart"></label>
+      <label class="row"><span>Stadt bis</span><span class="num"><input type="number" id="setT1" min="10" max="120" step="5"> <i>km/h</i></span></label>
+      <label class="row"><span>Landstraße bis</span><span class="num"><input type="number" id="setT2" min="40" max="200" step="5"> <i>km/h</i></span></label>
+      <label class="row"><span>Pegel Stadt</span><span class="num"><input type="number" id="setG1" min="30" max="150" step="5"> <i>%</i></span></label>
+      <label class="row"><span>Pegel Landstraße</span><span class="num"><input type="number" id="setG2" min="30" max="150" step="5"> <i>%</i></span></label>
+      <label class="row"><span>Pegel Autobahn</span><span class="num"><input type="number" id="setG3" min="30" max="150" step="5"> <i>%</i></span></label>
+      <label class="row"><span>Zonenwechsel ansagen</span><input type="checkbox" class="sw" id="setTierSpeak"></label>
+    </div>
+
+    <h2>Spotify (optional)</h2>
+    <div class="group">
+      <button class="row as-btn" id="btnSpotifyConnect">Spotify verbinden</button>
+      <label class="row col"><span>Client-ID</span>
+        <input type="text" id="setSpotifyId" placeholder="aus developer.spotify.com" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+      <div class="row col"><span>Redirect-URI (dort eintragen)</span><code id="redirectUri"></code></div>
+      <button class="row as-btn danger-text" id="btnSpotifyLogout">Spotify trennen</button>
+    </div>
+
+    <h2>Tour</h2>
+    <div class="group">
+      <button class="row as-btn" id="btnTripReset">Tourdaten zurücksetzen</button>
+      <button class="row as-btn danger-text" id="btnFactory">Alles zurücksetzen</button>
+    </div>
+
+    <p class="foot-note">
+      Navigation oder Musik antippen wechselt den großen Bereich; nach der
+      eingestellten Zeit springt die Anzeige von selbst zurück. Das Tempolimit
+      bleibt immer oben rechts. Bedienung nur im Stand.
+    </p>
+  </div>
+</section>
+
+<audio id="player" playsinline preload="auto"></audio>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

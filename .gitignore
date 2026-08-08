@@ -1,0 +1,6 @@
+# lokale Entwicklungszertifikate — gehören nicht ins Repository
+.certs/
+# macOS
+.DS_Store
+# lokale Claude-Code-Einstellungen
+.claude/
