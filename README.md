@@ -330,9 +330,16 @@ keiner Webseite Zugriff darauf, was eine andere App abspielt — es gibt dafür
 keine Schnittstelle. Die Web-API ist der einzige Weg; sie liest den Zustand über
 Spotifys Server, nicht vom Gerät.
 
-Play/Pause, Titelwechsel und Titelanzeige funktionieren damit. Die
-Gerätelautstärke lehnt Spotify auf iOS-Clients meist mit `403` ab — der
-Mute-Button fällt dann auf Pause zurück, was praktisch dasselbe leistet.
+Play/Pause, Titelwechsel, Playlistwahl und Titelanzeige funktionieren damit.
+
+**Die Lautstärke lässt sich nicht fernsteuern**, und das ist keine Nachlässigkeit
+in dieser App: Spotify meldet für iOS-Geräte selbst `supports_volume: false` und
+weist Lautstärkebefehle ab. Ein Weg daran vorbei existiert nicht — das Web
+Playback SDK, mit dem die Wiedergabe im Browser selbst liefe, unterstützt keine
+mobilen Browser. Wer die Lautstärke aus der App heraus regeln will, muss die App
+die Musik abspielen lassen: Über *Setup → Titel vom iPhone laden* laufen Regler,
+Mute, Ducking und Smart Volume vollständig. Bei Spotify bleibt der Mute-Knopf,
+der auf Pause zurückfällt, und die Lautstärketasten am iPhone.
 Der Anmelde-Umweg über `accounts.spotify.com` verlässt auf iOS unter Umständen
 die Vollbild-App; danach die App vom Home-Bildschirm neu öffnen, das Token bleibt
 gespeichert.

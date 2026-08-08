@@ -10,7 +10,8 @@ import { settings, set, pushRecent } from './store.js';
 const AUTH = 'https://accounts.spotify.com/authorize';
 const TOKEN = 'https://accounts.spotify.com/api/token';
 const API = 'https://api.spotify.com/v1';
-const SCOPES = 'user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative';
+const SCOPES = 'user-read-playback-state user-modify-playback-state '
+  + 'playlist-read-private playlist-read-collaborative user-read-recently-played';
 const TK = 'moto.spotify.token';
 const VK = 'moto.spotify.verifier';
 
@@ -177,78 +178,121 @@ async function api(path, { method = 'GET', query, body } = {}) {
 /** Spotify nimmt Befehle nur für ein „aktives“ Gerät an. Steht keines bereit,
     wird das iPhone zum aktiven gemacht — sonst laufen die Tasten ins Leere,
     und das ist der mit Abstand häufigste Grund dafür. */
+/** Spotifys Begriff vom „aktiven Gerät" ist wackelig: Nach dem Pausieren fällt
+    die iOS-App heraus. Deshalb merken wir uns die Geräte-ID und hängen sie an
+    jeden Befehl — das ist verlässlicher als auf einen Zustand zu hoffen. */
 async function ensureDevice(startPlaying = false) {
   const data = await api('/me/player/devices');
   const list = data?.devices || [];
   if (!list.length) { spotify.error = 'Spotify-App auf dem iPhone öffnen'; emit(); return 'none'; }
 
   const active = list.find((d) => d.is_active);
-  // Ob das Gerät überhaupt fernsteuerbare Lautstärke hat, sagt Spotify selbst.
-  spotify.canVolume = !!(active || list[0])?.supports_volume;
+  const phone = active || list.find((d) => d.type === 'Smartphone') || list[0];
+  deviceId = phone.id;
+  spotify.canVolume = phone.supports_volume !== false;
   if (active) return 'active';
 
-  // Nach dem Pausieren fällt die iOS-App als Gerät weg. Übertragen und dabei
-  // gleich starten — zwei getrennte Aufrufe scheitern hier zuverlässig.
-  const phone = list.find((d) => d.type === 'Smartphone') || list[0];
   await api('/me/player', { method: 'PUT', body: { device_ids: [phone.id], play: startPlaying } });
   await new Promise((r) => setTimeout(r, 500));
   return startPlaying ? 'started' : 'transferred';
 }
 
+const withDevice = (q = {}) => (deviceId ? { ...q, device_id: deviceId } : q);
+
 /* Nach einem Befehl sofort das Bild aktualisieren, statt bis zum nächsten
    Abfragezyklus zu warten — sonst wirkt die Bedienung träge. */
-function quickRefresh() { setTimeout(refresh, 350); setTimeout(refresh, 1200); }
+/* Nach einem Befehl braucht Spotify einen Moment. Fragt man zu früh, meldet
+   der Server noch den alten Stand und der Knopf springt zurück — genau das
+   sah nach „Pause geht nicht" aus. Also sperren wir die Übernahme kurz. */
+let holdUntil = 0;
+function quickRefresh() {
+  holdUntil = Date.now() + 1800;
+  setTimeout(refresh, 900);
+  setTimeout(refresh, 2000);
+}
 
 export async function play() {
   const state = await ensureDevice(true);
   if (state === 'none') return;
   spotify.playing = true; emit();                 // sofortige Rückmeldung
-  if (state !== 'started') await api('/me/player/play', { method: 'PUT' });
+  if (state !== 'started') await api('/me/player/play', { method: 'PUT', query: withDevice() });
   quickRefresh();
 }
 
 export async function pause() {
-  spotify.playing = false; emit();
-  await api('/me/player/pause', { method: 'PUT' });
+  spotify.playing = false;
   quickRefresh();
+  emit();
+  await api('/me/player/pause', { method: 'PUT', query: withDevice() });
 }
 
 export async function next() {
   if (await ensureDevice() === 'none') return;
-  await api('/me/player/next', { method: 'POST' });
+  await api('/me/player/next', { method: 'POST', query: withDevice() });
   quickRefresh();
 }
 
 export async function prev() {
   if (await ensureDevice() === 'none') return;
-  await api('/me/player/previous', { method: 'POST' });
+  await api('/me/player/previous', { method: 'POST', query: withDevice() });
   quickRefresh();
 }
 
 export const toggle = () => (spotify.playing ? pause() : play());
 
 /** Eine gemerkte Playlist bzw. ein Album wieder starten. */
-export async function playContext(uri) {
+/** Playlist starten — auf Wunsch in zufälliger Reihenfolge. Die Zufallsschaltung
+    muss vor dem Start gesetzt werden, sonst greift sie erst beim nächsten Titel. */
+export async function playContext(uri, shuffle = true) {
   if (await ensureDevice() === 'none') return;
-  spotify.playing = true; emit();
-  await api('/me/player/play', { method: 'PUT', body: { context_uri: uri } });
+  spotify.playing = true;
   quickRefresh();
+  emit();
+  if (shuffle) await api('/me/player/shuffle', { method: 'PUT', query: withDevice({ state: 'true' }) });
+  await api('/me/player/play', { method: 'PUT', query: withDevice(), body: { context_uri: uri } });
 }
 
 /** Eigene Playlists. Werden gespeichert, damit sie auch ohne Netz erscheinen. */
 const PL = 'moto.spotify.playlists';
 try { spotify.playlists = JSON.parse(localStorage.getItem(PL) || '[]'); } catch {}
 
+/** Zuletzt gehörte Playlists und Alben, neueste zuerst. */
+export async function loadRecent() {
+  const data = await api('/me/player/recently-played', { query: { limit: '50' } });
+  const seen = new Map();
+  for (const it of data?.items || []) {
+    const uri = it?.context?.uri;
+    if (!uri || seen.has(uri)) continue;
+    if (!uri.includes(':playlist:') && !uri.includes(':album:')) continue;
+    seen.set(uri, it.played_at);
+  }
+  const out = [];
+  for (const [uri] of seen) {
+    const name = await contextName(uri);
+    if (name) out.push({ uri, name, meta: uri.includes(':album:') ? 'Album · zuletzt gehört' : 'Playlist · zuletzt gehört' });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
 export async function loadPlaylists() {
-  const data = await api('/me/playlists', { query: { limit: '20' } });
-  if (!data?.items) return spotify.playlists;
-  spotify.playlists = data.items
+  const [own, recent] = await Promise.all([
+    api('/me/playlists', { query: { limit: '20' } }),
+    loadRecent().catch(() => []),
+  ]);
+  if (!own?.items && !recent.length) return spotify.playlists;
+
+  const mine = (own?.items || [])
     .filter((p) => p?.uri && p?.name)
     .map((p) => ({
       uri: p.uri,
       name: p.name,
       meta: `${p.tracks?.total ?? 0} Titel · ${p.owner?.display_name || 'Playlist'}`,
     }));
+
+  // Zuletzt Gehörtes zuerst, dann die eigenen Playlists ohne Dubletten.
+  const seen = new Set(recent.map((r) => r.uri));
+  spotify.playlists = [...recent, ...mine.filter((p) => !seen.has(p.uri))];
   try { localStorage.setItem(PL, JSON.stringify(spotify.playlists)); } catch {}
   emit();
   return spotify.playlists;
@@ -272,6 +316,7 @@ async function contextName(uri) {
 }
 
 let lastContext = null;
+let deviceId = null;
 
 async function noteContext(ctx) {
   if (!ctx?.uri || ctx.uri === lastContext) return;
@@ -289,10 +334,17 @@ async function noteContext(ctx) {
 /** Gerätelautstärke 0…1. iOS-Geräte melden `supports_volume: false` und lehnen
     das ab — dann gar nicht erst fragen, statt still zu scheitern. */
 export async function setVolume(v) {
-  if (!spotify.canVolume) return false;
+  if (spotify.canVolume === false) return false;
   const pct = Math.round(Math.max(0, Math.min(1, v)) * 100);
-  const r = await api('/me/player/volume', { method: 'PUT', query: { volume_percent: pct } });
-  return r !== null;
+  const r = await api('/me/player/volume', { method: 'PUT', query: withDevice({ volume_percent: pct }) });
+  if (r === null) {                      // abgelehnt — dann nicht weiter fragen
+    spotify.canVolume = false;
+    spotify.error = null;
+    emit();
+    return false;
+  }
+  spotify.volume = pct / 100;
+  return true;
 }
 
 export async function refresh() {
@@ -304,7 +356,7 @@ export async function refresh() {
   const data = await api('/me/player');
   spotify.connected = !!readToken();
   if (data && !data.empty && data.item) {
-    spotify.playing = !!data.is_playing;
+    if (Date.now() >= holdUntil) spotify.playing = !!data.is_playing;
     spotify.title = data.item.name || '';
     spotify.artist = (data.item.artists || []).map((a) => a.name).join(', ');
     spotify.volume = data.device?.volume_percent != null ? data.device.volume_percent / 100 : null;

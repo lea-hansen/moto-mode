@@ -195,9 +195,16 @@ function setMuted(on) {
   A.refreshGain(true);
 
   if (settings.source === 'spotify') {
-    if (on) { wasPlaying = spotify.playing; if (spotify.playing) S.pause(); }
-    else if (wasPlaying) S.play();
-    S.setVolume(on ? 0 : settings.mediaVol * A.getAutoFactor()).catch(() => {});
+    // Lässt das Gerät sich fernregeln, wird leise gedreht; sonst bleibt nur
+    // Pause — auf dem iPhone ist das der Normalfall.
+    if (spotify.canVolume) {
+      S.setVolume(on ? 0 : settings.mediaVol * A.getAutoFactor()).catch(() => {});
+    } else if (on) {
+      wasPlaying = spotify.playing;
+      if (spotify.playing) S.pause();
+    } else if (wasPlaying) {
+      S.play();
+    }
   } else if (on) {
     wasPlaying = audio.playing;
     setTimeout(() => { if (settings.muted) A.pause(); }, 140);   // erst ausblenden, dann anhalten
@@ -700,8 +707,9 @@ function renderPlaylists() {
   const box = $('#plList');
   box.textContent = '';
 
-  // Bei Spotify die eigenen Playlists, sonst die zuletzt geladenen Titel.
-  const items = isSpotify() ? spotify.playlists.slice(0, 3) : settings.recent;
+  // Bei Spotify die zuletzt gehörten und eigenen Playlists — hier darf
+  // gescrollt werden, die Ansicht ist für den Stand gedacht.
+  const items = isSpotify() ? spotify.playlists : settings.recent;
 
   if (!items.length) {
     const empty = document.createElement('div');
@@ -725,7 +733,7 @@ function renderPlaylists() {
       (isSpotify() || r.kind === 'spotify') ? r.meta : `${r.meta} · erneut wählen`;
     b.addEventListener('click', () => {
       A.unlock();
-      if (isSpotify() || r.kind === 'spotify') S.playContext(r.uri);
+      if (isSpotify() || r.kind === 'spotify') S.playContext(r.uri, true);   // zufällige Reihenfolge
       else $('#filePick').click();
     });
     box.appendChild(b);

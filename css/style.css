@@ -292,7 +292,12 @@ b,i{font-style:normal}
 .np-title{font-size:clamp(20px,6cqw,44px);font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .np-artist{font-size:clamp(14px,3.4cqw,24px);font-weight:500;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .pl-label{flex:0 0 auto;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3)}
-.pl-list{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--gap)}
+/* Einzige Liste im Dashboard, die scrollen darf: Sie wird im Stand bedient,
+   und alle Playlists ohne Scrollen zu zeigen geht nicht. */
+.pl-list{
+  flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--gap);
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+}
 .pl-item{
   flex:1 1 0;min-height:0;border-radius:14px;background:var(--tile-2);
   display:flex;align-items:center;gap:14px;padding:0 clamp(12px,3cqw,22px);min-width:0;

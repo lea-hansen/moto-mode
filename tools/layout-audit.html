@@ -38,6 +38,7 @@ function audit(doc, mode) {
   for (const el of doc.querySelectorAll('*')) {
     if (el.closest('#sheet')) continue;
     if (el.closest('#planSheet') && mode !== 'plan') continue;
+    if (el.id === 'plList') continue;      // darf scrollen, siehe style.css
     if (!el.clientHeight && !el.clientWidth) continue;
     const ox = el.scrollWidth - el.clientWidth, oy = el.scrollHeight - el.clientHeight;
     if (ox > 1 || oy > 1) bad.push(`${el.id ? '#' + el.id : (el.className ? '.' + String(el.className).split(' ')[0] : el.tagName.toLowerCase())}(+${ox}x,+${oy}y)`);
