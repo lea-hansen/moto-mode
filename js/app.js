@@ -304,6 +304,29 @@ function renderLimit() {
   }[limit.state];
 
   $('#limitSub').textContent = status || (parts.length ? parts.join(' · ') : 'kein Limit hinterlegt');
+
+  // Straßeneigenschaften: nur zeigen, wenn sie zutreffen — sonst bleibt die
+  // Leiste leer, wie bei GPS und Netz auch.
+  $('#pillToll').hidden = !limit.toll;
+  $('#pillSurface').hidden = !limit.surface;
+  $('#pillSurface').textContent = limit.surface ? limit.surface.text.toUpperCase() : 'BELAG';
+  $('#pillBlocked').hidden = !limit.restriction;
+  $('#pillBlocked').textContent = limit.restriction ? limit.restriction.text.toUpperCase() : 'GESPERRT';
+  announceRoad();
+}
+
+/* Einmal ansagen, nicht bei jedem Fix wiederholen. */
+let spokenRoad = '';
+
+function announceRoad() {
+  if (!settings.navVoice) return;
+  const key = [limit.surface?.text, limit.restriction?.text].filter(Boolean).join('|');
+  if (key === spokenRoad) return;
+  spokenRoad = key;
+  if (!key) return;
+  const p = phrases(settings.navLang);
+  if (limit.restriction) A.speak(p.blocked || limit.restriction.text);
+  else if (limit.surface) A.speak(p.surface || limit.surface.text);
 }
 
 /* ── Telemetrie ────────────────────────────────────────────────────────── */

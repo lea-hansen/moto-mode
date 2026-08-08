@@ -111,6 +111,8 @@ b,i{font-style:normal}
 .pill[hidden]{display:none}
 .pill[data-state="ok"]{background:#30D15826;color:var(--green)}
 .pill[data-state="warn"]{background:#FF9F0A26;color:var(--orange)}
+.pill[data-state="info"]{background:#0A84FF26;color:var(--blue)}
+.pill[data-state="stop"]{background:#FF453A26;color:var(--red)}
 .gear{
   width:44px;height:34px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;
   font-size:19px;color:var(--fg-3);border-radius:8px;

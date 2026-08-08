@@ -6,6 +6,8 @@
 
 const TABLE = {
   'de-DE': {
+    blocked: 'Achtung, Durchfahrt gesperrt.',
+    surface: 'Achtung, unbefestigte Strecke.',
     routeStarted: (km, min) => `Route gestartet. ${km}, ${min} Minuten.`,
     offRoute: 'Route verlassen.',
     arrived: 'Ziel erreicht.',
@@ -14,6 +16,8 @@ const TABLE = {
     tiers: { 1: 'Innerorts', 2: 'Außerorts', 3: 'Autobahn' },
   },
   'es-ES': {
+    blocked: 'Atención, paso restringido.',
+    surface: 'Atención, firme sin asfaltar.',
     routeStarted: (km, min) => `Ruta iniciada. ${km}, ${min} minutos.`,
     offRoute: 'Has salido de la ruta.',
     arrived: 'Has llegado al destino.',
@@ -22,6 +26,8 @@ const TABLE = {
     tiers: { 1: 'Zona urbana', 2: 'Carretera', 3: 'Autopista' },
   },
   'ca-ES': {
+    blocked: 'Atenció, pas restringit.',
+    surface: 'Atenció, ferm sense asfaltar.',
     routeStarted: (km, min) => `Ruta iniciada. ${km}, ${min} minuts.`,
     offRoute: 'Has sortit de la ruta.',
     arrived: 'Has arribat a destinació.',

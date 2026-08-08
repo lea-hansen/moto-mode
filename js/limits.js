@@ -14,6 +14,7 @@
 
 import { settings } from './store.js';
 import { ask } from './overpass.js';
+import { surfaceWarning, isToll, accessRestriction } from './restrictions.js';
 
 const CACHE_KEY = 'moto.limits.v1';
 const MIN_INTERVAL = 12000;   // Overpass ist ein Gemeinschaftsdienst — sparsam abfragen
@@ -28,6 +29,10 @@ export const limit = {
   free: false,      // unbegrenzt (deutsche Autobahn ohne Beschilderung)
   road: '',
   country: null,    // ISO-Kürzel der Position, z. B. ES, FR, AD
+  toll: false,      // Mautstraße
+  surface: null,    // Hinweis auf losen oder unbefestigten Belag
+  restriction: null,// gerade geltendes Durchfahrtsverbot
+  tags: null,       // Rohdaten des Wegs, für die zeitabhängige Auswertung
   area: null,       // Innerorts | Außerorts | Autobahn
   source: '',       // Schild | Zone | Annahme
   cached: false,
@@ -274,11 +279,20 @@ async function query(lat, lon, heading) {
     const hit = pickWay(elements.filter((e) => e.type === 'way'), lat, lon, heading);
 
     if (!hit) {
-      apply({ kmh: null, free: false, road: '', area: null, source: '', country }, false);
+      apply({ kmh: null, free: false, road: '', area: null, source: '', country, tags: {} }, false);
     } else {
       const tags = hit.way.tags || {};
       const resolved = resolve(tags) || {};
+      // Belag, Maut und Beschränkungen stecken in denselben Tags — mitnehmen,
+      // statt dafür eine zweite Abfrage zu stellen.
+      const keep = {};
+      for (const k of ['surface', 'smoothness', 'toll', 'motorcycle:conditional',
+                       'motor_vehicle:conditional', 'vehicle:conditional', 'access:conditional']) {
+        if (tags[k]) keep[k] = tags[k];
+      }
+
       const entry = {
+        tags: keep,
         kmh: resolved.kmh ?? null,
         free: !!resolved.free,
         road: tags.name || tags.ref || '',
@@ -308,10 +322,23 @@ function apply(entry, fromCache) {
   limit.road = entry.road || '';
   limit.area = entry.area || null;
   limit.country = entry.country || country;
+  limit.tags = entry.tags || null;
+  limit.toll = isToll(entry.tags || {});
+  limit.surface = surfaceWarning(entry.tags || {});
+  refreshRestriction();
   limit.source = entry.source || '';
   limit.cached = fromCache;
   limit.updated = Date.now();
 }
+
+/** Zeitabhängig neu bewerten: Eine Sperrzeit beginnt, ohne dass sich die
+    Position ändert. Einmal je Minute reicht dafür. */
+export function refreshRestriction() {
+  const before = limit.restriction?.text || null;
+  limit.restriction = limit.tags ? accessRestriction(limit.tags) : null;
+  if ((limit.restriction?.text || null) !== before) emit();
+}
+setInterval(refreshRestriction, 60000);
 
 /** Wird bei jedem GPS-Fix aufgerufen. */
 export function updatePosition(lat, lon, heading) {

@@ -1,0 +1,52 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Straßeneigenschaften-Test</title></head>
+<body style="background:#000;color:#eee;font:13px ui-monospace,Menlo,monospace;padding:16px"><pre id="out">…</pre>
+<script type="module">
+import { surfaceWarning, isToll, accessRestriction } from '../js/restrictions.js';
+const L=[]; let fails=0;
+const ok=(c,t)=>{L.push(`  ${c?'ok  ':'FAIL'}  ${t}`); if(!c) fails++;};
+const at=(iso)=>new Date(iso);
+
+L.push('— Belag —');
+ok(surfaceWarning({surface:'asphalt'}) === null, 'Asphalt löst keinen Hinweis aus');
+ok(surfaceWarning({}) === null, 'Ohne Angabe kein Hinweis');
+ok(surfaceWarning({surface:'gravel'})?.level === 'loose', 'Schotter gilt als loser Belag');
+ok(surfaceWarning({surface:'dirt'})?.level === 'loose', 'Erde gilt als loser Belag');
+ok(surfaceWarning({surface:'compacted'})?.level === 'rough', 'Verdichtet gilt als unbefestigt');
+ok(surfaceWarning({surface:'paving_stones'}) === null, 'Pflaster gilt als befestigt');
+
+L.push('— Maut —');
+ok(isToll({toll:'yes'}) === true, 'toll=yes erkannt');
+ok(isToll({toll:'no'}) === false, 'toll=no erkannt');
+ok(isToll({}) === false, 'ohne Angabe keine Maut');
+
+L.push('— Zeitbedingte Sperrung (echtes Beispiel: Carrer de Ferran) —');
+const ferran = {'motor_vehicle:conditional':'no @ (Mo-Sa 11:00-15:00, 17:00-20:30)'};
+ok(accessRestriction(ferran, at('2026-08-12T12:00:00'))?.value === 'no', 'Mittwoch 12:00 → gesperrt');
+ok(accessRestriction(ferran, at('2026-08-12T18:00:00'))?.value === 'no', 'Mittwoch 18:00 → gesperrt');
+ok(accessRestriction(ferran, at('2026-08-12T09:00:00')) === null, 'Mittwoch 09:00 → frei');
+ok(accessRestriction(ferran, at('2026-08-12T16:00:00')) === null, 'Mittwoch 16:00 → frei (Lücke)');
+ok(accessRestriction(ferran, at('2026-08-09T12:00:00')) === null, 'Sonntag 12:00 → frei (nur Mo–Sa)');
+
+L.push('— Weitere echte Beispiele —');
+const layret = {'motor_vehicle:conditional':'no @ (Sa,Su,PH 09:00-24:00)'};
+ok(accessRestriction(layret, at('2026-08-09T14:00:00'))?.value === 'no', 'Sonntag 14:00 → gesperrt');
+ok(accessRestriction(layret, at('2026-08-12T14:00:00')) === null, 'Mittwoch 14:00 → frei');
+const cassanyes = {'motor_vehicle:conditional':'destination @ (Mo-Su 05:00-11:00)'};
+ok(accessRestriction(cassanyes, at('2026-08-12T07:00:00'))?.text === 'Nur destination', 'Nur Anlieger 05–11');
+
+L.push('— Saisonal und Motorrad —');
+ok(accessRestriction({'motorcycle:conditional':'no @ (Nov-Mar)'}, at('2026-01-15T12:00:00'))?.value === 'no',
+   'Wintersperre Nov–Mär greift im Januar');
+ok(accessRestriction({'motorcycle:conditional':'no @ (Nov-Mar)'}, at('2026-07-15T12:00:00')) === null,
+   'Wintersperre greift im Juli nicht');
+
+L.push('— Robustheit —');
+ok(accessRestriction({'access:conditional':'no @ (last Su of Mar)'}, at('2026-03-29T12:00:00')) === null,
+   'Unverstandene Bedingung warnt nicht ins Blaue');
+ok(accessRestriction({'motor_vehicle:conditional':'yes @ (Mo-Fr 08:00-20:00)'}, at('2026-08-12T10:00:00')) === null,
+   'Ausdrückliche Erlaubnis ist keine Sperrung');
+
+L.push('');
+L.push(fails ? `ERGEBNIS: ${fails} Prüfung(en) fehlgeschlagen` : 'ERGEBNIS: alle Prüfungen bestanden');
+document.getElementById('out').textContent = L.join('\n');
+</script></body></html>

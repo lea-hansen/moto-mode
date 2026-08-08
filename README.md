@@ -11,6 +11,7 @@ js/gps.js             GPS: Tempo, Zonenerkennung, Tourstatistik
 js/limits.js          Tempolimit aus OpenStreetMap (Overpass) mit Offline-Cache
 js/nav.js             Abbiegenavigation: Route, Alternativen, Führung, Ansagen
 js/phrases.js         App-Ansagen auf Deutsch, Katalanisch und Spanisch
+js/restrictions.js    Belag, Maut und zeitbedingte Durchfahrtsverbote
 js/sun.js             Sonnenauf- und -untergang, offline gerechnet
 js/poi.js             Umkreissuche: Tankstelle, Essen, Hotel, Parken, Werkstatt
 js/overpass.js        gemeinsame Warteschlange für alle Overpass-Abfragen
@@ -27,6 +28,8 @@ tools/layout-audit.html  prüft alle Geräte×Ansichten auf überlaufenden Inhal
 tools/nav-test.html      holt eine echte Route und prüft Führung und Ansagen
 tools/spotify-test.html  spielt den ganzen Spotify-Ablauf gegen eine
                          nachgebildete API durch
+tools/restrictions-test.html  prüft Belag- und Sperrzeit-Auswertung an echten
+                         katalanischen Beispielen
 ```
 
 ## Auf dem iPhone installieren
@@ -256,6 +259,35 @@ Daten — eine Ortsdurchfahrt mit 60 wird sie falsch einordnen.
 *Ansagesprache*). Valhalla liefert die Abbiegeanweisungen in derselben Sprache
 mit, sodass Stimme und Straßennamen zusammenpassen: „Gira a la dreta cap a
 Carrer de València."
+
+## Straßeneigenschaften
+
+Aus derselben Overpass-Abfrage, die das Tempolimit holt, wertet die App drei
+weitere Angaben aus — ohne zusätzliche Anfrage. Sie erscheinen als Hinweise in
+der Statusleiste und nur dann, wenn sie zutreffen:
+
+| Hinweis | Quelle | Bedeutung |
+|---|---|---|
+| `MAUT` | `toll=yes` | Mautpflichtiger Abschnitt |
+| `UNBEFESTIGT` / `LOSER BELAG` | `surface` | Alles außer Asphalt, Beton, Pflaster |
+| `GESPERRT` / `NUR …` | `*:conditional` | Durchfahrtsverbot, das gerade gilt |
+
+Bei Belag und Sperrung sagt die App zusätzlich einmal Bescheid — einmal, nicht
+bei jedem Fix.
+
+**Was davon in Katalonien wirklich ankommt** (an echten Daten geprüft, damit die
+Erwartung stimmt): `surface` ist bei 194 von 200 untersuchten Wegen `asphalt`,
+unbefestigte Abschnitte sind die Ausnahme — die Warnung feuert selten, was für
+eine Warnung richtig ist. `smoothness` ist nur bei 12 von 200 gesetzt und
+deshalb nicht verwendet. Zeitbedingte Verbote gibt es in ganz Katalonien nur
+eine Handvoll, fast alle als Sperrzeiten in Stadtzentren wie dem Carrer de
+Ferran in Barcelona. Und `toll=yes` fehlt an C-16 und AP-7 ganz, weil dort 2021
+die Maut abgeschafft wurde.
+
+Die Auswertung der Sperrzeiten deckt Wochentage, Uhrzeiten und Monatsbereiche
+ab. Trifft sie auf etwas Unverstandenes — `last Su of Mar` etwa —, **warnt sie
+nicht**, statt zu raten: Ein übersprungenes Wort kann den Sinn umkehren und aus
+„letzter Sonntag im März" jeden Sonntag im März machen.
 
 ## Tempolimit ohne Navigation
 
