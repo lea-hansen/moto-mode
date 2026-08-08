@@ -184,11 +184,11 @@ werden neu geladen. Verlässliches Offline-Kartenmaterial bräuchte eine eigene
 PMTiles-Datei; das wäre der nächste Ausbauschritt.
 
 Es gibt **keinen Verkehr, keine Blitzer, keine Live-Umleitung**, und beim
-Routing selbst wird das calimoto nicht schlagen — echtes Kurvenrouting kann
-Valhalla nicht, „Autobahn meiden" drückt die Route aber zuverlässig auf
-Landstraßen. Der Grund für die eingebaute Navigation ist ein anderer: iOS kann
-calimoto und MotoMode nicht gleichzeitig anzeigen. Nur so liegen Karte, Musik
-und Tempolimit auf einem Bildschirm.
+Routing selbst wird sie spezialisierte Motorrad-Navis nicht schlagen — echtes
+Kurvenrouting kann Valhalla nicht, „Autobahn meiden" drückt die Route aber
+zuverlässig auf Landstraßen. Der Grund für die eingebaute Navigation ist ein
+anderer: Nur so liegen Karte, Musik und Tempolimit auf einem Bildschirm, ohne
+dass ein App-Wechsel die PWA pausiert.
 
 Beide Dienste sind Gemeinschaftsangebote mit Fair-Use-Grenzen. Eine Route pro
 Fahrt fällt dort nicht ins Gewicht; wer dauernd neu berechnet, sollte einen
@@ -299,14 +299,12 @@ Vier Dinge sind Plattformgrenzen, keine Auslassungen. Sie bestimmen den Aufbau:
    deshalb läuft die Wiedergabe durch einen Web-Audio-`GainNode`. Mit
    *Setup → Titel vom iPhone laden* wählst du Dateien aus der Dateien-App;
    darauf wirken Regler, Mute, Smart Volume und Ducking vollständig.
-2. **Karten lassen sich nicht einbetten.** Der Navigationsbereich ist ein
-   Schnellstart für Apple Karten, Google Maps und calimoto (das Ziel aus dem
-   Setup wird übergeben, calimoto startet ohne Ziel). Sobald die Navi-App im
-   Vordergrund ist, pausiert iOS die PWA — GPS und Wake Lock laufen beim
-   Zurückwechseln automatisch weiter. Ein echtes Split-Screen aus Web-App und
-   nativer Karte gibt es auf dem iPhone nicht; die Route-Ansicht zeigt deshalb
-   Fahrdaten statt einer Karte. Eine Abbiegenavigation kann sie nicht liefern —
-   dafür fehlt einer Web-App jeder Zugang zur laufenden Navigation.
+2. **Fremde Karten-Apps lassen sich nicht einbetten.** Apple Karten und Google
+   Maps verbieten das. Deshalb bringt MotoMode seine eigene Navigation mit —
+   Karte, Route und Ansagen laufen vollständig in der App, auf OpenStreetMap-
+   Daten. Verweise auf Apple Karten, Google Maps und calimoto gibt es bewusst
+   nicht mehr: Ein Wechsel in eine andere App würde die PWA pausieren und damit
+   Tacho, Tempolimit und Musiksteuerung mitnehmen.
 3. **Fremd-Apps sind nicht steuerbar — mit einer Ausnahme.** Der Ansage-Regler
    und die Absenkung wirken auf einen Web-Audio-Gain-Node, also nur auf Musik,
    die *diese App selbst* abspielt. Läuft Spotify, hängt an diesem Node kein

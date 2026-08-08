@@ -347,33 +347,6 @@ function renderTelemetry() {
 onGps(renderTelemetry);
 onLimit(renderLimit);
 
-/* ── Navigation ────────────────────────────────────────────────────────── */
-
-function openExternal(scheme, fallback) {
-  const t = Date.now();
-  location.href = scheme;
-  setTimeout(() => {
-    if (!document.hidden && Date.now() - t < 2500) location.href = fallback;
-  }, 1200);
-}
-
-function launch(which) {
-  const q = settings.dest.trim();
-  const e = encodeURIComponent(q);
-  if (which === 'apple') {
-    openExternal(q ? `maps://?daddr=${e}&dirflg=d` : 'maps://',
-                 q ? `https://maps.apple.com/?daddr=${e}&dirflg=d` : 'https://maps.apple.com/');
-  } else if (which === 'google') {
-    openExternal(q ? `comgooglemaps://?daddr=${e}&directionsmode=driving` : 'comgooglemaps://',
-                 q ? `https://www.google.com/maps/dir/?api=1&destination=${e}&travelmode=driving`
-                   : 'https://www.google.com/maps');
-  } else {
-    openExternal('calimoto://', 'https://www.calimoto.com/');
-  }
-}
-
-$$('.launch').forEach((b) => b.addEventListener('click', () => launch(b.dataset.app)));
-
 /* ── Abbiegenavigation ─────────────────────────────────────────────────── */
 
 // Valhalla-Manövertypen auf Pfeile. Unbekanntes bleibt geradeaus.
